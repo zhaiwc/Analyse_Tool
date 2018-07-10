@@ -62,14 +62,6 @@ def plot_scatter(data,columnslist = None,label_col = None):
     elif len_col == 2:
         if label_col is None:
             sns.jointplot(columnslist[0], columnslist[1], data=data ,kind="scatter")
-#            x = np.array(data[columnslist[0]]) 
-#            y = np.array(data[columnslist[1]])
-#                
-#            plt.scatter(x,y)
-#            
-#            plt.xlabel(columnslist[0])
-#            plt.ylabel(columnslist[1])
-            
             
         else:
             label = set(data[label_col])
