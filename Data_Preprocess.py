@@ -252,7 +252,7 @@ class data_change():
         self.scaler = None
         self.data_col = None
         
-    def transform(self,data,is_drop = True):
+    def fit_transform(self,data,is_replace = True):
         print('-----开始进行因子变换:转换方法：{}-----'.format(self.method))
 
             
@@ -261,20 +261,28 @@ class data_change():
             for col in self.data_col:
                 new_col = pd.DataFrame(np.log(data[[col]]),columns = ['ln_' + col],index = data.index)
             data = pd.concat([data,new_col],axis=1)
-            if is_drop:
+            if is_replace:
                 data = data.drop(self.data_col,axis =1)
                 
         elif self.method == 'avgstd':
-            scaler = preprocessing.StandardScaler()
-            data = pd.DataFrame(scaler.fit_transform(data),
-                                index = data.index, columns = data.columns)
-            self.scaler = scaler
-            
+            if self.scaler is None:
+                scaler = preprocessing.StandardScaler()
+                data = pd.DataFrame(scaler.fit_transform(data),
+                                    index = data.index, columns = data.columns)
+                self.scaler = scaler
+            else:
+                data = pd.DataFrame(self.scaler.fit_transform(data),
+                                    index = data.index, columns = data.columns)
+                
         elif self.method == 'minmax':
-            scaler = preprocessing.MinMaxScaler()
-            data = pd.DataFrame(scaler.fit_transform(data),
-                            index = data.index,columns = data.columns)
-            self.scaler = scaler
+            if self.scaler is None:
+                scaler = preprocessing.MinMaxScaler()
+                data = pd.DataFrame(scaler.fit_transform(data),
+                                index = data.index,columns = data.columns)
+                self.scaler = scaler
+            else:
+                data = pd.DataFrame(self.scaler.fit_transform(data),
+                                    index = data.index, columns = data.columns)
             
         return data
     
@@ -510,7 +518,7 @@ def sample_balance(x,y,method ='random',rank_by = None,Multiple = 4,boostrap =Fa
                     else:
                         #如果最少类所夹的范围不足以取相应的数据，则在数据前后补齐。
                         idx = list(data[(data[rank_by]>min_idx) & (data[rank_by]<max_idx)].index)
-                        part2len = abs(int((len(data[(data[rank_by]>min_idx) & (data[rank_by]<max_idx)])-min_num * Multiple) /2)) 
+                        part2len = abs(int((len(data[(data[rank_by]>min_idx) & (data[rank_by]<max_idx)]) - min_num * Multiple) /2)) 
                         if part2len > len(data[data[rank_by]<min_idx]):
                             idx = idx + list(data[data[rank_by]<min_idx].index)                   
                         else:
