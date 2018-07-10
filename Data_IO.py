@@ -2,61 +2,72 @@
 """
 文件输入输出
 输入：xls,csv,txt.
-输出：xls,csv,txt.
+输出：xls,csv.
+json输入输出
+图片输入输出
 """
 
 
 import pandas as pd
-import pickle
+import json
+import cv2
 
-def get_txt_data(file_path,sep = None):
+def get_data(file_path,**kw):
+    file_type = file_path.split('.')[1]
+    print('----- loading data -----')
     try:
         print('reading data ...')
-        data = pd.read_table(file_path,sep = sep)
+        if file_type == 'txt':
+            data = pd.read_table(file_path,**kw)
+        elif file_type == 'csv':
+            data = pd.read_csv(file_path,**kw)
+        elif file_type == 'xls' or file_type == 'xlsx':
+            data = pd.read_excel(file_path,**kw)
         print('reading success ...')
-    except FileNotFoundError as e:
-        data = None
-    finally:
-        return data
-
-def get_csv_data(file_path):
-    try:
-        print('reading data ...')
-        data = pd.read_csv(file_path)
-        print('reading success ...')
-    except:
+        
+    except Exception as e:
+        print('reading false,{}'.format(e))
         data = None
     finally:
         return data
     
-def get_xls_data(file_path):
-    try:
-        print('reading data ...')
-        data = pd.read_excel(file_path)
-        print('reading success ...')
-    except:
-        data = None
-    finally:
-        return data
+def to_file(data,file_name,file_path = None, file_type = 'xls'):
+    if file_path is not None:
+        file_name = file_path +'\\'+ file_name
+    print('saving data ... path: {}'.format(file_name))
+    if file_type =='xls':
+        data.to_excel(file_name)
+    elif file_type =='csv':
+        data.to_csv(file_name)
+    print('saving success ...')
+
+def json2py(json_str):
     
-def save_data(data_name,data):
-    if data is not None:
-        print('saving data ...')
-        with open(data_name,'wb') as file:
-            data.to_pickle(file)
-        print('saving success...')
+    json_dict = json.loads(json_str)
+    return json_dict
+
+def py2json(obj):
+    
+    if type(obj) == pd.DataFrame or type(obj) == pd.Series:
+        json_str = obj.to_json()
     else:
-        print('data is None ,please check')
+        json_str = json.dumps(obj)
         
-def get_data(data_name):
+    return json_str
+
+def get_img(img_path):
+    
+    img = cv2.imread(img_path,0)
+    return img
+
+def save_img(img,file_name,file_path):
     try:
-        print('loading data ...')
-        with open(data_name,'rb') as file:
-            data = pickle.load(file)
-        print('loading success...')
-    except:
-        print('data is None ,please check')
-        data = None
-    finally:   
-        return data
+        if file_path is not None:
+            file_name = file_path +'\\'+ file_name
         
+        cv2.imwrite(file_path,img)
+        return True
+    except Exception as e:
+        print('saving false,{}'.format(e))
+        return False
+    
