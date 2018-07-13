@@ -34,6 +34,7 @@ def describe_analysis(data,columnslist = None,label_col =None):
         columnslist.remove(label_col)
         
     print('开始对数据进行描述性统计分析...')
+    check_col = _describe_data(data).index
     if label_col is None:
         data = data[columnslist]        
         describe_df = _describe_data(data)
@@ -47,9 +48,51 @@ def describe_analysis(data,columnslist = None,label_col =None):
             des_df = pd.concat([index_df,des_df],axis=1)
             describe_df = pd.concat([describe_df,des_df])
         describe_df = describe_df.set_index('index')
-    plt = Data_plot.plot_describe(data,columnslist,label_col)
+    plt_col = list(set(check_col)&set(columnslist))
+    plt = Data_plot.plot_describe(data,plt_col,label_col)
     plt.show()
     return describe_df
+
+def spc_analysis(data,p1 = None,p2 = None,method ='3sigma'):
+    '''
+    spc管控分析
+    method = 3sigma/tukey
+    针对每一个因子x，计算超出管控线的样本个数
+    '''
+    res_dict = {}
+    #筛选数据列
+    num_col = data.describe().columns
+
+    data = data.loc[:,num_col]
+    if method == '3sigma':
+        for col in data.columns:
+            #计算指标
+            temp = data.loc[:,col]
+            mean_data = temp.mean()
+            std_data = temp.std()
+            sigma3 = mean_data + 3*std_data
+            sigma_3 =  mean_data - 3*std_data
+            #计算超出管控线的个数
+            res_dict[col] = len(temp[(temp>sigma3) | (temp<sigma_3)])
+        res = pd.DataFrame(res_dict,index = ['cnt']).T.sort_values('cnt')
+        #画图
+        plt = Data_plot.plot_spc(data.loc[:,[res.index[-1]]],method = method)
+        plt.show()
+    elif method =='tukey':
+        for col in data.columns:
+            for col in data.columns:
+                #计算指标
+                temp = data.loc[:,col]
+                perc25 = np.percentile(temp,25)
+                perc75 = np.percentile(temp,75)
+                upper = perc75 + 3 *(perc75 - perc25)
+                lower = perc25 - 3 *(perc75 - perc25)
+                res_dict[col] = len(temp[(temp>upper) | (temp<lower)])
+        res = pd.DataFrame(res_dict,index = ['cnt']).T.sort_values('cnt')
+        #画图
+        plt = Data_plot.plot_spc(data.loc[:,[res.index[-1]]],method = method)
+        plt.show()
+    return res
 
 def _autocorr(data,threshold = 0.8,method = 'pearson'):
     drop_col = set()
@@ -57,7 +100,8 @@ def _autocorr(data,threshold = 0.8,method = 'pearson'):
         autocorr_df = data.corr()
     elif method == 'rand':
         autocorr_df = __rand_index_corr(data)
-        
+    
+    #判断是否需要剔除    
     for idx in range(len(autocorr_df)):
         for idy in range(len(autocorr_df)):
             if idx>=idy:

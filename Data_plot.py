@@ -22,6 +22,8 @@ import numpy as np
 import pandas as pd
 import pdb
 
+c = ['red','blue','green','gold','y'] 
+
 def plot_scatter(data,columnslist = None,label_col = None):
     '''
     一维散点：x轴：range(len(data)) ,y轴：data_x.
@@ -29,7 +31,7 @@ def plot_scatter(data,columnslist = None,label_col = None):
     三维散点：x轴：data[0],y轴：data[1] z轴：data[2],z轴用颜色表示
     
     '''
-    c = ['red','blue','green','gold','y'] 
+    global c 
     if columnslist is None:
         columnslist = list(data.columns)
     if label_col is not None and label_col in columnslist:
@@ -76,10 +78,9 @@ def plot_scatter(data,columnslist = None,label_col = None):
             plt.ylabel(columnslist[1])
             plt.legend(loc='best')
     
-    elif len_col == 3:
+    elif len_col >= 3:
         fig = plt.figure()
         ax = fig.gca(projection='3d')
-#        ax = fig.add_subplot(111, projection='3d')
         if label_col is None:
             x = np.array(data[columnslist[0]]) 
             y = np.array(data[columnslist[1]])
@@ -104,7 +105,7 @@ def plot_scatter(data,columnslist = None,label_col = None):
         
     return plt
 
-def plot_line(data,columnslist = None,label_col = None,c = None):
+def plot_line(data,columnslist = None,label_col = None):
     '''
     一维折线：x轴：range(len(data)) ,y轴：data.
     二维折线：x轴：data[0],y轴：data[1] 
@@ -117,8 +118,8 @@ def plot_line(data,columnslist = None,label_col = None,c = None):
     if label_col is not None and label_col in columnslist:
         columnslist.remove(label_col)
         
-    if c is None:
-        c = ['r','blue','green']
+    
+    global c 
         
     len_col = len(columnslist)
     
@@ -134,7 +135,8 @@ def plot_line(data,columnslist = None,label_col = None,c = None):
         else:
             label = set(data[label_col])
             for i,lab in enumerate(label):
-                ths_data = data[data[label_col] == lab]                
+                ths_data = data.sort_values(label_col).reset_index()
+                ths_data = ths_data[ths_data[label_col] == lab]                
                 y = np.array(ths_data[columnslist]) 
                 x = np.array(ths_data.index)
                 
@@ -210,7 +212,7 @@ def plot_hist(data,columnslist,label_col = None,bins =10):
              (1 / sigma * (bins - mu))**2))
         ax2.plot(bins, y, 'r--')
         ax2.set_xlabel('No.')
-        ax2.set_ylim([0, max(y)+0.1 ])
+        ax2.set_y ([0, max(y)+0.1 ])
         ax1.set_ylabel(columnslist[0])
         
     else:
@@ -293,7 +295,66 @@ def plot_box(data,columnslist,label_col = None):
 
     return plt
 
+def plot_spc(data,p1 = None , p2 = None , method ='3sigma'):
+    '''
+    spc管控图，只能画一维数据,输入的data，1维df.
+    method = 3sigma p1 = mean , p2 = std
+    如果传入mean,std 则使用传入的数据，否则使用输入的数据计算mean,std
+    method = tukey
+    '''
+
+    #如果超过1维，则取第一列
+    if data.shape[1] >=2:
+        data = data.iloc[:,0]
+        
+    if method == '3sigma':
+        if p1 is None:    
+            p1 = data.mean().values[0]
+        if p2 is None:
+            p2 = data.std().values[0]
+    
+        std_2 = np.ones(data.shape) * (p1 + 2*p2)
+        std_3 = np.ones(data.shape) * (p1 + 3*p2)
+        _2_std = np.ones(data.shape) * (p1 - 2*p2)
+        _3_std = np.ones(data.shape) * (p1 - 3*p2)
+    
+        x = np.array(range(len(data)))
+        #数据走势线
+        plt.plot(x, np.array(data), 'black',label = 'x')
+        #管控线
+        plt.plot(x, std_3, 'r--',label = '3sigma')
+        plt.plot(x, _3_std, 'r--',label = '-3sigma')
+        plt.plot(x, std_2, 'y--',label = '2sigma')
+        plt.plot(x, _2_std, 'y--',label = '-2sigma')
+        plt.title( '{} control chart : {}'.format(method,data.columns[0]))
+        plt.legend(loc='upper left')
+    if method == 'tukey':
+        if p1 is None:    
+            p1 = 1.5 
+        if p2 is None:
+            p2 = 3
+    
+        base_line1 =np.ones(data.shape) * (np.percentile(data,75)  + p1 * (np.percentile(data,75) - np.percentile(data,25)))
+        base_line2 =np.ones(data.shape) * (np.percentile(data,75)  + p2 * (np.percentile(data,75) - np.percentile(data,25)))
+        base_line_1 =np.ones(data.shape) * (np.percentile(data,25)  - p1 * (np.percentile(data,75) - np.percentile(data,25)))
+        base_line_2 =np.ones(data.shape) * (np.percentile(data,25)  - p2 * (np.percentile(data,75) - np.percentile(data,25)))
+    
+        x = np.array(range(len(data)))
+        #数据走势线
+        plt.plot(x, np.array(data), 'black',label = 'x')
+        #管控线
+        plt.plot(x, base_line2, 'r--',label = '3R')
+        plt.plot(x, base_line_2, 'r--',label = '-3R')
+        plt.plot(x, base_line1, 'y--',label = '1.5R')
+        plt.plot(x, base_line_1, 'y--',label = '-1.5R')
+        plt.title('{} control chart : {}'.format(method,data.columns[0]))
+        plt.legend(loc='upper left')
+    return plt
+
 def plot_describe(data,columnslist = None,label_col = None):
+    '''
+    画分布分析图
+    '''
     
     if columnslist is None:
         columnslist = list(data.columns)
@@ -301,61 +362,41 @@ def plot_describe(data,columnslist = None,label_col = None):
     if label_col is not None and label_col in columnslist:
         columnslist.remove(label_col)
     #列太多画不下
-    if len(columnslist)> 15:
-        columnslist = columnslist[0:15]
-        
+    n_col = len(columnslist)
+    if n_col> 5:
+        columnslist = columnslist[0:5]
+  
     if label_col is None:
+        
+        (f, axs) = plt.subplots(2, len(columnslist), figsize=(10, 8), sharex=True)
+        for i in range(len(columnslist)):
+            #画箱线图
+            if len(columnslist) == 1:
+                sns.boxplot(x=columnslist[i],data = data, ax=axs[0])
+                axs[0].set_xlabel(columnslist[i])
+            else:
+                sns.boxplot(x=columnslist[i],data = data, ax=axs[0,i])
+                axs[0,i].set_xlabel(columnslist[i])
 
-        left_x,left_y=0,0
-        for i,col in enumerate(columnslist):
-            x = np.array(data[col])
-                      
-            plt.figure(1, figsize=(4, 4))
-            #设定图形大小
-            width,height=0.15,0.35
-            left_xh=left_x+width+0.02
-          
-            hist_area=[left_x,left_y,width,height]
-            box_area=[left_xh,left_y,0.15,height]
-            area_hist=plt.axes(hist_area)
-            area_box=plt.axes(box_area)
-            
-            area_hist.hist(x, bins=10,orientation='horizontal')
-            area_box.boxplot(x)
-            area_hist.set_xlabel(col)
-            left_x = left_x + 0.4
-            if i>0 and i%5 == 0:
-                left_y = left_y + 0.5
-                left_x = 0
+            #画直方概率图
+            if len(columnslist) == 1:
+                sns.distplot(data.loc[:,columnslist[i]].dropna(),ax=axs[1])
+                axs[1].set_xlabel(columnslist[i])
+            else:
+                sns.distplot(data.loc[:,columnslist[i]].dropna(),ax=axs[1,i])
+                axs[1,i].set_xlabel(columnslist[i])
+
     else:
-        left_x,left_y=0,0
-        label = set(data[label_col])
-        for lab in label:
-            for i,col in enumerate(columnslist):
-#                pdb.set_trace()
-                x = np.array(data.loc[data[label_col]==lab,col])
-                plt.figure(1, figsize=(4, 4))
-                #设定图形大小
-                width,height=0.15,0.35
-                left_xh=left_x+width+0.02
-                #定义区域
-                hist_area=[left_x,left_y,width,height]
-                box_area=[left_xh,left_y,0.15,height]
-                area_hist=plt.axes(hist_area)
-                area_box=plt.axes(box_area)
-                #去掉box图的坐标轴标签
-                area_box.set_yticks([])
-                area_box.set_xticks([])
-                #画图
-                area_hist.hist(x, bins=10,orientation='horizontal')
-                area_box.boxplot(x)
-                area_hist.set_xlabel(col)
-                if i == 0 :
-                    area_hist.set_ylabel('class: '+str(lab))
-                left_x = left_x + 0.4
-            left_y = left_y + 0.5
-            left_x = 0
-            
+        (f, axs) = plt.subplots(2, len(columnslist), figsize=(10, 8), sharex=True)
+        for i in range(len(columnslist)):
+            #画箱线图
+            sns.boxplot(x=columnslist[i],y=label_col,data = data,ax=axs[0,i])
+            axs[0,i].set_xlabel(columnslist[i])
+            #画直方概率图
+            for key,group in data.groupby(label_col):
+                sns.kdeplot(group.loc[:,columnslist[i]].dropna(), shade =True,label=key,ax=axs[1,i])
+            axs[1,i].set_xlabel(columnslist[i])
+                     
     return plt
 
 def plot_autocorr(data,columnslist = None,label_col = None,
@@ -367,66 +408,66 @@ def plot_autocorr(data,columnslist = None,label_col = None,
     if columnslist is None:
         columnslist = list(data.columns)
         
-    if label_col is not None and label_col in columnslist:
-        columnslist.remove(label_col)
+#    if label_col is not None and label_col in columnslist:
+#        columnslist.remove(label_col)
     #列太多画不下
     if len(columnslist)> 15:
         columnslist = columnslist[0:15]
         
     data = data.loc[:,columnslist]
-    corr_df = data.corr()
-    
+#    corr_df = data.corr()
     if label_col is None:
-        left_x,left_y=0,0
-        for idx in range(len(columnslist)):
-            for idy in range(len(columnslist)):
-                #定义画图区域
-                width,height=scale,scale
-                plot_area=[left_x,left_y,width,height]
-                
-                area_plot=plt.axes(plot_area)
-
-                if idx == idy:
-                    #直方图
-                    x = data[columnslist[idx]]
-                    area_plot.hist(x, bins=10,width =(x.max() - x.min())/20)
-                    
-                elif idx < idy:
-                    if abs(corr_df.iloc[idx,idy]) > threshold:
-                        area_plot.text(scale, scale, str(corr_df.iloc[idx,idy])[:5],
-                                    fontsize=20, color='red')
-                    else:
-                        area_plot.text(scale, scale, str(corr_df.iloc[idx,idy])[:5],
-                                    fontsize=20, color='green')
-                elif idx > idy:
-                    x = data[columnslist[idx]]
-                    y = data[columnslist[idy]]
-                    area_plot.scatter(x, y,marker='o')
-                #只保留最外边框的坐标轴
-                if idx < len(columnslist) - 1 and idy > 0: 
-                    area_plot.set_yticks([])
-                    area_plot.set_xticks([])
-                    
-                elif idx == len(columnslist) - 1 and  idy > 0:
-                    area_plot.set_yticks([])
-                    area_plot.set_xlabel(columnslist[idy])
-                    
-                elif idy == 0 and idx < len(columnslist) - 1:
-                    area_plot.set_xticks([])
-                    area_plot.set_ylabel(columnslist[idx])
-                    
-                else:
-                    area_plot.set_xlabel(columnslist[idy])
-                    area_plot.set_ylabel(columnslist[idx])
-                    
-                #子图坐标点平移
-                left_x += scale
-                
-            left_y -= scale
-            left_x = 0
+        plt = sns.pairplot(data)
+#        left_x,left_y=0,0
+#        for idx in range(len(columnslist)):
+#            for idy in range(len(columnslist)):
+#                #定义画图区域
+#                width,height=scale,scale
+#                plot_area=[left_x,left_y,width,height]
+#                
+#                area_plot=plt.axes(plot_area)
+#
+#                if idx == idy:
+#                    #直方图
+#                    x = data[columnslist[idx]]
+#                    area_plot.hist(x, bins=10,width =(x.max() - x.min())/20)
+#                    
+#                elif idx < idy:
+#                    if abs(corr_df.iloc[idx,idy]) > threshold:
+#                        area_plot.text(scale, scale, str(corr_df.iloc[idx,idy])[:5],
+#                                    fontsize=20, color='red')
+#                    else:
+#                        area_plot.text(scale, scale, str(corr_df.iloc[idx,idy])[:5],
+#                                    fontsize=20, color='green')
+#                elif idx > idy:
+#                    x = data[columnslist[idx]]
+#                    y = data[columnslist[idy]]
+#                    area_plot.scatter(x, y,marker='o')
+#                #只保留最外边框的坐标轴
+#                if idx < len(columnslist) - 1 and idy > 0: 
+#                    area_plot.set_yticks([])
+#                    area_plot.set_xticks([])
+#                    
+#                elif idx == len(columnslist) - 1 and  idy > 0:
+#                    area_plot.set_yticks([])
+#                    area_plot.set_xlabel(columnslist[idy])
+#                    
+#                elif idy == 0 and idx < len(columnslist) - 1:
+#                    area_plot.set_xticks([])
+#                    area_plot.set_ylabel(columnslist[idx])
+#                    
+#                else:
+#                    area_plot.set_xlabel(columnslist[idy])
+#                    area_plot.set_ylabel(columnslist[idx])
+#                    
+#                #子图坐标点平移
+#                left_x += scale
+#                
+#            left_y -= scale
+#            left_x = 0
                     
     else:
-        pass
+        plt = sns.pairplot(data, hue = label_col)
     return plt
 
 def plot_bar_analysis(data,columnslist,label_col = None,threshold = None):

@@ -15,7 +15,7 @@ from sklearn import linear_model
 from sklearn import preprocessing
 from sklearn.neighbors import KNeighborsClassifier
 from sklearn.model_selection import train_test_split
-
+import copy
 def __check_label(data):
     '''
     筛选数据中的文本列
@@ -243,7 +243,62 @@ def one_hot_encode(data):
     '''
     pass
 
-class data_change():
+class Data_Encoding():
+    def __init__(self,method):
+        self.method = method
+        self.map_dict = defaultdict(dict)
+        self.labelcolumns = None
+        
+    def data2label(self,strdata,columnlist):
+        '''
+        根据获取的数据,指定列,生成字典映射。
+        order:顺序编码
+        onehot:01独热编码
+        onehotPCA,独热编码后降维
+        '''
+
+        codedata =copy.copy(strdata)
+        if self.method =='order':
+            self.labelcolumns = columnlist
+            for col in columnlist:
+                #进行转换
+                data_col_gpby = strdata[[col]].groupby(strdata[col]).count()
+                
+                for idx in range(len(data_col_gpby)):
+                    codedata[[col]] = codedata[[col]].replace(data_col_gpby.index[idx],idx)
+                    self.map_dict[col][idx] = data_col_gpby.index[idx]
+        elif self.method == 'onehot':
+            codedata = []
+            for col in columnlist:
+                #进行转换
+                codedata.append(pd.get_dummies(strdata[[col]]))
+            codedata = pd.concat(codedata,axis=1)
+
+        return codedata
+    
+    def label2data(self,codedata):
+#        pdb.set_trace()
+        strdata =copy.copy(codedata)
+        if self.method == 'order':
+            for key in self.map_dict:
+                for code in self.map_dict[key]:
+                    strdata[[key]] = strdata[[key]].replace(code,self.map_dict[key][code])
+        elif self.method == 'onehot':
+            
+        return strdata
+    
+    def transform(self,strdata,columnlist = None):
+        codedata = copy.copy(strdata)
+        if self.method == 'order':
+            if columnlist is None:
+                columnlist = self.labelcolumns
+            for col in columnlist:
+                for key in self.map_dict[col]:
+                    codedata[[col]] = codedata[[col]].replace(key,self.map_dict[col][key])
+        
+        return codedata
+
+class Data_Change():
     '''
     数据变换类
     '''

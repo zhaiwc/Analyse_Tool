@@ -17,13 +17,78 @@ from sklearn import linear_model
 from xgboost import XGBRegressor,XGBClassifier
 from Analysis_Tool import Data_plot
 
+class Dim_Reduction():
+    '''
+    n_comp: N 前N大主成分（优先）
+    cum_std ： 0.8 前N大主成分所解释的方差累计百分比（次优）
+    '''
+    def __init__(self,n_comp = None , cum_std = 0.8):
+        self.n_comp = n_comp
+        self.cum_std = cum_std
+        self.dr_model = None
+        self.data_col = None
+        
+    def fit(self,data):
+        '''
+        训练数据
+        '''
+        #先以n_comp为基准，如不满足条件则
+        if self.n_comp is not None:
+            self.dr_model = PCA(n_components = self.n_comp)
+            self.dr_model.fit(data)
+            if self.dr_model.explained_variance_ratio_.cumsum()[-1] < self.cum_std:
+                self.dr_model = PCA(n_components = self.cum_std)
+                self.dr_model.fit(data)
+        else:
+            self.dr_model = PCA(n_components = self.cum_std)
+            self.dr_model.fit(data)
+        self.data_col = data.columns
+        
+    def transform(self,data):
+        '''
+        对预测数据进行转换
+        '''
+        if self.dr_model is not None:
+            res = self.dr_model.transform(data)
+            pca_col = ['pca'+ str(i+1) for i in range(res.shape[1])]
+            res = pd.DataFrame(res,columns = pca_col)
+        else:
+            print('dr_model is None')
+            res = None
+        return res
+    
+    def get_vip(self,wight_comp,Top_N = 20 ):
+        '''
+        wight_comp:由其他模型计算得到的因子重要性
+        根据wight_comp * transformmat 计算原始因子重要性
+        '''
+        weight = np.array(wight_comp).reshape(1,-1)
+        trans_mat = self.dr_model.components_
+        res = pd.DataFrame(np.dot(weight,trans_mat),columns = self.data_col,index = ['importance'])
+        res = abs(res.T).sort_values('importance')
+        return res.iloc[-Top_N:]
+        
+    def plot_cum_std(self,data,n = 30):
+        '''
+        画各个维度pca累积贡献度
+        '''
+        pca_model = PCA(n_components = n)
+        pca_model.fit(data)
+        eplan_var_csum = pca_model.explained_variance_ratio_.cumsum()
+        plt = Data_plot.plot_line(pd.DataFrame(eplan_var_csum,columns = ['cum_var']))
+#        plt = Data_plot.plot_line(pd.DataFrame(np.ones(eplan_var_csum.shape)*0.8,columns=['base_line']))
+        plt.title('cumsum explained_variance_ratio')
+        plt.show()
+        
 def dim_reduction(data,method = 'pca',n_comp = None):
     if method =='pca':
         if n_comp is None:
             pca = PCA(svd_solver= 'full',n_components = 'mle')
             pca.fit(data)
+            
             res = pca.transform(data)
         else:
+            pdb.set_trace()
             pca = PCA(n_components=n_comp)
             pca.fit(data)
             res = pca.transform(data)

@@ -481,7 +481,6 @@ class pca_clu_reg():
             x_clu = clu_data[clu_data.label ==i]
             y_clu = y.loc[x_clu.index,:]
             #创建模型
-#            pdb.set_trace()
             reg,para = reg_model(x_dr.loc[x_clu.index,:],y_clu,method= self.method)
             self.reg_model[i] = reg
             self.reg_para[i] = para
