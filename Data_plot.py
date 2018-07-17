@@ -399,73 +399,20 @@ def plot_describe(data,columnslist = None,label_col = None):
                      
     return plt
 
-def plot_autocorr(data,columnslist = None,label_col = None,
-                  threshold = 0.8,scale = 0.3):
+def plot_autocorr(data,columnslist = None,label_col = None):
     '''
     画自相关图
     scale:画图的尺寸
     '''
     if columnslist is None:
         columnslist = list(data.columns)
-        
-#    if label_col is not None and label_col in columnslist:
-#        columnslist.remove(label_col)
     #列太多画不下
     if len(columnslist)> 15:
         columnslist = columnslist[0:15]
         
-    data = data.loc[:,columnslist]
-#    corr_df = data.corr()
+    data = data.loc[:,columnslist].dropna()
     if label_col is None:
         plt = sns.pairplot(data)
-#        left_x,left_y=0,0
-#        for idx in range(len(columnslist)):
-#            for idy in range(len(columnslist)):
-#                #定义画图区域
-#                width,height=scale,scale
-#                plot_area=[left_x,left_y,width,height]
-#                
-#                area_plot=plt.axes(plot_area)
-#
-#                if idx == idy:
-#                    #直方图
-#                    x = data[columnslist[idx]]
-#                    area_plot.hist(x, bins=10,width =(x.max() - x.min())/20)
-#                    
-#                elif idx < idy:
-#                    if abs(corr_df.iloc[idx,idy]) > threshold:
-#                        area_plot.text(scale, scale, str(corr_df.iloc[idx,idy])[:5],
-#                                    fontsize=20, color='red')
-#                    else:
-#                        area_plot.text(scale, scale, str(corr_df.iloc[idx,idy])[:5],
-#                                    fontsize=20, color='green')
-#                elif idx > idy:
-#                    x = data[columnslist[idx]]
-#                    y = data[columnslist[idy]]
-#                    area_plot.scatter(x, y,marker='o')
-#                #只保留最外边框的坐标轴
-#                if idx < len(columnslist) - 1 and idy > 0: 
-#                    area_plot.set_yticks([])
-#                    area_plot.set_xticks([])
-#                    
-#                elif idx == len(columnslist) - 1 and  idy > 0:
-#                    area_plot.set_yticks([])
-#                    area_plot.set_xlabel(columnslist[idy])
-#                    
-#                elif idy == 0 and idx < len(columnslist) - 1:
-#                    area_plot.set_xticks([])
-#                    area_plot.set_ylabel(columnslist[idx])
-#                    
-#                else:
-#                    area_plot.set_xlabel(columnslist[idy])
-#                    area_plot.set_ylabel(columnslist[idx])
-#                    
-#                #子图坐标点平移
-#                left_x += scale
-#                
-#            left_y -= scale
-#            left_x = 0
-                    
     else:
         plt = sns.pairplot(data, hue = label_col)
     return plt

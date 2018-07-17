@@ -146,24 +146,22 @@ def autocorr_analysis(data,columnslist = None,label_col =None,
     if label_col is not None and label_col in columnslist:
         columnslist.remove(label_col)
         
-    print('开始对数据进行自相关性分析...')    
+    print('----- 开始对数据进行自相关性分析 -----')    
     
     if label_col is None:
         ths_data = data[columnslist]
         autocorr_df,drop_col = _autocorr(ths_data,threshold = threshold,method = method)
         if isplot:
-            plt = Data_plot.plot_autocorr(ths_data,columnslist,
-                                          threshold = threshold)
-            plt.show()
+            Data_plot.plot_autocorr(ths_data,columnslist)
+
             
     else:
         
         ths_data = data[columnslist]        
         autocorr_df,drop_col = _autocorr(ths_data,threshold = threshold)
         if isplot:
-            plt = Data_plot.plot_autocorr(ths_data,columnslist,
-                          threshold = threshold)
-            plt.show()
+            Data_plot.plot_autocorr(ths_data,columnslist,label_col=label_col)
+
         for key,group in data.groupby(label_col):
             ths_res,drop_col_label = _autocorr(group,threshold = threshold)
             drop_col = drop_col & set(drop_col_label)

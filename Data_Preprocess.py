@@ -59,11 +59,11 @@ def __check_constant(data):
         datacol = data[[col]].dropna()
         if len(set(datacol.iloc[:,0])) < 2:
             constant_col.append(col)
-        else:
-            #标准化
-            datacol,scaler = data2avgstd(datacol)
-            if datacol.std()[0]< 10e-5:
-                constant_col.append(col)
+#        else:
+#            #标准化
+#            datacol,scaler = data2avgstd(datacol)
+#            if datacol.std()[0]< 10e-5:
+#                constant_col.append(col)
     return constant_col
 
 def get_variable_type(data):
@@ -200,48 +200,6 @@ def fill_nan(data,label_col = None, method = 1):
 
     return res,drop_col
 
-            
-def map_label2code(data,columnlist):
-    '''
-    根据获取的数据,指定列,生成字典映射。
-    data:输入的数据
-    columnlist:需要映射的分类
-    '''
-    
-    map_dict = defaultdict(dict)
-    for col in columnlist:
-        data_col_gpby = data[[col]].groupby(data[col]).count()
-        for idx in range(len(data_col_gpby)):
-            data[[col]] = data[[col]].replace(data_col_gpby.index[idx],idx)
-            map_dict[col][idx] = data_col_gpby.index[idx]       
-    return data,map_dict
-
-def map_code2label(data,map_dict):
-    '''
-    根据获取的数据,映射字典还原。
-    data:输入的数据
-    map_dict:映射的字典
-    '''
-    for key in map_dict:
-        for code in map_dict[key]:
-            data[[key]] = data[[key]].replace(code,map_dict[key][code])
-    return data
-        
-def dummy(data,columnlist):
-    '''
-    根据指定的离散变量列，全部转换为哑变量列
-    '''
-    for each in columnlist:
-        ths_dummy = pd.get_dummies(data[each],prefix = each,drop_first = False)
-        data = pd.concat([data,ths_dummy],axis =1)
-    data = data.drop(columnlist,axis =1)
-    return data
-
-def one_hot_encode(data):
-    '''
-    实现独热编码
-    '''
-    pass
 
 class Data_Encoding():
     def __init__(self,method):
@@ -257,8 +215,9 @@ class Data_Encoding():
         onehotPCA,独热编码后降维
         '''
 
-        codedata =copy.copy(strdata)
+        
         if self.method =='order':
+            codedata =copy.copy(strdata)
             self.labelcolumns = columnlist
             for col in columnlist:
                 #进行转换
@@ -269,21 +228,45 @@ class Data_Encoding():
                     self.map_dict[col][idx] = data_col_gpby.index[idx]
         elif self.method == 'onehot':
             codedata = []
+            self.labelcolumns = columnlist
             for col in columnlist:
                 #进行转换
-                codedata.append(pd.get_dummies(strdata[[col]]))
+                thscol = pd.get_dummies(strdata[[col]])
+                #生成转换mapdict
+                drop_dup = thscol.drop_duplicates()
+                self.map_dict[col]['col'] = thscol.columns
+                for col_sub in thscol.columns:
+                    col_list = col_sub.split('_')
+                    self.map_dict[col][col_list[1]] = np.array(drop_dup[drop_dup.loc[:,col_sub] == 1])
+                
+                codedata.append(thscol)
             codedata = pd.concat(codedata,axis=1)
 
         return codedata
     
     def label2data(self,codedata):
-#        pdb.set_trace()
+
         strdata =copy.copy(codedata)
         if self.method == 'order':
             for key in self.map_dict:
                 for code in self.map_dict[key]:
                     strdata[[key]] = strdata[[key]].replace(code,self.map_dict[key][code])
         elif self.method == 'onehot':
+            #创建结果集
+            res = pd.DataFrame(np.ones((codedata.shape[0],len(self.labelcolumns))))
+            cnt = 0
+            
+            for col in codedata.columns:
+                col_list = col.split('_')
+                if  col_list[0] == res.columns[0]:
+                    pass
+                else:
+                    res = res.rename(columns = {cnt:col_list[0]})
+                    cnt += 1
+                #赋值
+                res.loc[codedata[codedata.loc[:,col]==1].index,col_list[0]] = col_list[1]
+                
+            strdata = res
             
         return strdata
     
@@ -296,6 +279,21 @@ class Data_Encoding():
                 for key in self.map_dict[col]:
                     codedata[[col]] = codedata[[col]].replace(key,self.map_dict[col][key])
         
+        elif self.method == 'onehot':
+            res = []
+            if columnlist is None:
+                columnlist = self.labelcolumns
+            for col in columnlist:
+                temp = []
+                columns_stand =  self.map_dict[col]['col']
+                for key in self.map_dict[col].keys():
+                    if key != 'col':
+                        idx = strdata[strdata.loc[:,col] == key].index
+                        ndarray = np.array(list(self.map_dict[col][key])*len(idx)).reshape(len(idx),-1)
+                        temp.append(pd.DataFrame(ndarray,index = idx,columns = columns_stand))
+                res.append(pd.concat(temp))
+            res = pd.concat(res,axis = 1)
+            codedata = res.reindex(strdata.index)
         return codedata
 
 class Data_Change():
@@ -355,42 +353,6 @@ class Data_Change():
         
 
 
-def data2minmax(data):
-    '''
-    按最大最小值的方法进行数据映射
-    '''
-    min_max_scaler = preprocessing.MinMaxScaler()
-    data = pd.DataFrame(min_max_scaler.fit_transform(data),
-                        index = data.index,columns = data.columns)
-    return data,min_max_scaler
-
-
-def minmax2data(data,min_max_scaler):
-    '''
-    将最大最小值映射过的数据还原
-    '''
-    data = pd.DataFrame(min_max_scaler.inverse_transform(data),
-                        index = data.index,columns = data.columns)
-    return data
-
-
-def data2avgstd(data):
-    '''
-    按均值标准差的方法进行数据映射
-    '''
-    scaler = preprocessing.StandardScaler()
-    data = pd.DataFrame(scaler.fit_transform(data),
-                        index = data.index, columns = data.columns)
-    return data,scaler
-
-
-def avgstd2data(data,scaler):
-    '''
-     按均值标准差映射进行数据还原
-    '''
-    res = pd.DataFrame(scaler.inverse_transform(data),
-                       index = data.index,columns =data.columns)
-    return res
 
 #def data_change(data,method,columnlist = None ,is_drop = True,**kw):
 #    '''
