@@ -14,7 +14,7 @@ from collections import defaultdict,Counter
 from sklearn import linear_model
 from sklearn import preprocessing
 from sklearn.neighbors import KNeighborsClassifier
-from sklearn.model_selection import train_test_split
+
 import copy
 def __check_label(data):
     '''
@@ -172,7 +172,7 @@ def fill_nan(data,label_col = None, method = 1):
         离散：按分类补值
         连续：按回归补值
     '''
-    #statistic information
+    print('-----  数据补值  -----')
     print('数据缺失统计信息：')
     lines,cols = data.shape 
     dropna_line = data.dropna(how = 'any',axis = 0).shape[0] 
@@ -186,9 +186,9 @@ def fill_nan(data,label_col = None, method = 1):
         if len(data[col].dropna()) < lines * 0.25:
             drop_col.append(col)
     print('the num of column almost(>75%) nan is {}'.format(len(drop_col)))
-    print('删除空值列结果：原数据 {} 列，其中，空值列： {} 列，数据列： {} 列。 '.format(data.shape[1],len(drop_col),data.shape[1]-len(drop_col))) 
+    print('删除空值列结果：\n原数据 {} 列，其中，空值列： {} 列，数据列： {} 列。 '.format(data.shape[1],len(drop_col),data.shape[1]-len(drop_col))) 
     data = data.drop(drop_col,axis=1)
-    print('开始对数据进行补值.....')
+    
     if label_col is None:
         res =  __fill_nan(data,method = method)
         
@@ -492,91 +492,7 @@ def split_train_test(x,y,test_size = 0.2,random_state = None):
             x, y, test_size=test_size, random_state=random_state)
     return X_train, X_test, y_train, y_test
 
-def sample_balance(x,y,method ='random',rank_by = None,Multiple = 4,boostrap =False,benchmark = 'min'):
-    '''
-    样本均衡：
-    通过样本筛选，使得正负样本尽量均衡。保证各类样本比例不超过4:1,by label 。
-    method = 'near':如果样本失衡，则根据排序类别的顺序下，取最近的样本。
-    method = 'random':如果样本失衡，则在多数类别中，进行随机抽取。
-    Multiple:大类样本与小类样本数量比
-    boostrap：是否重采样
-    benchmark：max :以大类为基准 ，min : 以小类为基准
-    '''
-    print('-----开始进行样本均衡-----')
-    #统计y的count()
-    cnt = Counter(y.iloc[:,0])
-    print('当前分类信息：',cnt)
-    x_res = pd.DataFrame()
-    y_res = pd.DataFrame()
-    if benchmark == 'min':
-        #计算最小的类和类的个数
-        min_num = min(cnt.values())
-        for key in cnt.keys():
-            if cnt[key] == min_num:
-                minclass = key
-    
-        for key in cnt.keys():
-            if cnt[key] < min_num * Multiple:
-                idx = y[y==key].dropna().index
-            else:
-                if method =='near':
-                    #合并x,y，并排序
-                    data = pd.concat([x,y],axis =1)
-                    data = data.sort_values(rank_by)
-                    #计算最少类的idx,获取最小类rank列的范围
-                    idx_short = y[y==minclass].dropna().index
-                    max_idx = data.loc[idx_short[0] ,rank_by]
-                    min_idx = data.loc[idx_short[-1],rank_by]
-                    #计算当前过多的类的idx
-                    idx_long = y[y==key].dropna().index
-                    data = data.loc[idx_long,:]
-                    if len(data[(data[rank_by]>min_idx) & (data[rank_by]<max_idx)]) > min_num * Multiple:
-                        idx = data[data[rank_by]>min_idx & data[rank_by]<max_idx].sample(int(min_num * Multiple),replace=boostrap).index
-                    else:
-                        #如果最少类所夹的范围不足以取相应的数据，则在数据前后补齐。
-                        idx = list(data[(data[rank_by]>min_idx) & (data[rank_by]<max_idx)].index)
-                        part2len = abs(int((len(data[(data[rank_by]>min_idx) & (data[rank_by]<max_idx)]) - min_num * Multiple) /2)) 
-                        if part2len > len(data[data[rank_by]<min_idx]):
-                            idx = idx + list(data[data[rank_by]<min_idx].index)                   
-                        else:
-                            idx = idx + list(data[data[rank_by]<min_idx].sample(int(part2len),replace=boostrap).index)
-                        if part2len > len(data[data[rank_by]>max_idx]):
-                            idx = idx + list(data[data[rank_by]>max_idx].index)
-                        else:
-                            idx = idx + list(data[data[rank_by]>max_idx].sample(int(part2len),replace=boostrap).index)
-                    
-                elif method == 'random':
-                    idx = y[y==key].dropna().sample(int(min_num * Multiple),replace=boostrap).index
-                    
-            x_new = x.loc[idx,:]
-            y_new = y.loc[idx,:]
-            x_res = pd.concat([x_res,x_new])
-            y_res = pd.concat([y_res,y_new])
-            
-            #统计结果y的count()
-            cnt_res = Counter(y_res.iloc[:,0])
-            print('样本均衡后分类信息：',cnt_res)
-    
-    elif benchmark == 'max': 
-        #计算最大的类和类的个数
-        max_num = max(cnt.values())
-        for key in cnt.keys():
-            if cnt[key] > max_num / Multiple:
-                idx = y[y==key].dropna().index
-            else:
-                #从小数目中采集多个样本只能重采样。                  
-                idx = y[y==key].dropna().sample(int(max_num / Multiple),replace=True).index
-                    
-            x_new = x.loc[idx,:]
-            y_new = y.loc[idx,:]
-            x_res = pd.concat([x_res,x_new])
-            y_res = pd.concat([y_res,y_new])
-            
-            #统计结果y的count()
-            cnt_res = Counter(y_res.iloc[:,0])
-            print('样本均衡后分类信息：',cnt_res)
-    
-    return x_res,y_res
+
 
 #def data_balance(x,y,label_col = None,method ='random',rank_by = None ):
 #    if label_col is None:

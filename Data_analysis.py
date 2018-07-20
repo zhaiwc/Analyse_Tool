@@ -174,7 +174,7 @@ def autocorr_analysis(data,columnslist = None,label_col =None,
     return data,autocorr_df,drop_col
 
 def linear_corr_analysis(data,y = None,columnslist = None,label_col = None,
-                      threshold = 0.8,method = 'pearson',mix_method ='mean',isdrop = True):
+                      threshold = 0.8,mix_method ='mean',isdrop = True):
     '''
     相关性分析，默认前面为x,最后一列为y。
     分别求每一列x与y的 线性相关，秩相关，剔除异常相关 等系数，进行绝对值排序
@@ -190,19 +190,15 @@ def linear_corr_analysis(data,y = None,columnslist = None,label_col = None,
         
     if label_col is not None and label_col in columnslist:
         columnslist.remove(label_col)
-    print('开始对数据进行线性相关分析......')
+    print('----- 线性相关分析  -----')
     if label_col is None:
         data = data[columnslist]
+        #求相关性系数矩阵
         corr_df = data.corr(method = 'pearson').iloc[:-1,[-1]]
-
-        corr_df = corr_df.rename(columns = {columnslist[-1]:
-                                    'corr_' + str(columnslist[-1])})
+        corr_df = corr_df.rename(columns = {columnslist[-1]:'corr_' + str(columnslist[-1])})
         corr_df = corr_df.sort_values(corr_df.columns[0])
-#        plt_data = pd.concat([corr_df.iloc[:20,:],corr_df.iloc[-20:,:]])
-        
-        plt = Data_plot.plot_bar_analysis(corr_df,corr_df.columns,threshold = [threshold,-threshold])
 
-        plt.ylim([-1.1,1.1])
+        plt = Data_plot.plot_bar_analysis(corr_df,corr_df.columns,threshold = [threshold,-threshold])
         plt.title('correlation with '+str(columnslist[-1]))
         plt.show()
         #如果有nan值，则用0填充
@@ -210,40 +206,36 @@ def linear_corr_analysis(data,y = None,columnslist = None,label_col = None,
         drop_col = list(corr_df.loc[abscorr<threshold].index)
 
     else:
-        
-        
         corr_df_total = pd.DataFrame()
         for key,group in data.groupby(label_col):
+            #分group求相关系数矩阵
             ths_data = group[columnslist]
-            corr_df = ths_data.corr(method = method).iloc[:-1,[-1]]
-            corr_df = corr_df.rename(columns = {columnslist[-1]:
-                            'corr_'+ str(key) +'_' + columnslist[-1]})
+            corr_df = ths_data.corr(method ='pearson').iloc[:-1,[-1]]
+            corr_df = corr_df.rename(columns = {columnslist[-1]:'corr_'+ str(key) +'_' + columnslist[-1]})
             corr_df_total = pd.concat([corr_df_total,corr_df],axis=1)
-            
+        #group聚合    
         if mix_method == 'max': 
             mix_corr_df = pd.DataFrame(corr_df_total.max(axis = 1),columns =['max_label_corr_'+columnslist[-1]])
         elif mix_method == 'min':
-            mix_corr_df = pd.DataFrame(corr_df_total.min(axis = 1),columns =['max_label_corr_'+columnslist[-1]])
+            mix_corr_df = pd.DataFrame(corr_df_total.min(axis = 1),columns =['min_label_corr_'+columnslist[-1]])
         elif mix_method == 'mean':
-            mix_corr_df = pd.DataFrame(corr_df_total.mean(axis = 1),columns =['max_label_corr_'+columnslist[-1]])
+            mix_corr_df = pd.DataFrame(corr_df_total.mean(axis = 1),columns =['mean_label_corr_'+columnslist[-1]])
         
         mix_corr_df = mix_corr_df.sort_values(mix_corr_df.columns[0])
-        
+
         plt = Data_plot.plot_bar_analysis(mix_corr_df,mix_corr_df.columns,threshold = [threshold,-threshold])
-        plt.ylim([-1.1,1.1])
         plt.title(mix_method + ' correlation with '+str(columnslist[-1]))
-        plt.show()
-        corr_df_total = corr_df_total.reindex(mix_corr_df.index)
-        plt = Data_plot.plot_bar_analysis(corr_df_total,corr_df_total.columns,threshold = [threshold,-threshold])
         plt.show()
         
         drop_col = list(mix_corr_df.loc[abs(mix_corr_df.iloc[:,0])<threshold].index)
-    print('线性相关分析(阈值：{})：原数据：{}列，剔除数据{}列，筛选出：{}列。'.format(
-            threshold,data.shape[1]-1,len(drop_col),data.shape[1]-len(drop_col)-1))
+        corr_df = mix_corr_df
+    print('线性相关分析(阈值：{})结果：原数据：{}列，剔除数据{}列，筛选出：{}列。'.format(
+            threshold,corr_df.shape[0],len(drop_col),corr_df.shape[0]-len(drop_col)))
     if isdrop:
         data = data.drop(list(drop_col),axis =1)
-        data = data.drop(pd.DataFrame(y).columns[0],axis =1)
-    data = data.reindex(index = y.index)
+        if y is not None:
+            data = data.drop(pd.DataFrame(y).columns[0],axis =1)
+            data = data.reindex(index = y.index)
     return data,corr_df,drop_col
 
 def nonlinear_corr_analysis(data,y = None,columnslist = None,label_col = None,threshold = 0.8,
@@ -261,7 +253,7 @@ def nonlinear_corr_analysis(data,y = None,columnslist = None,label_col = None,th
         columnslist.append(y.columns)
     if label_col is not None and label_col in columnslist:
         columnslist.remove(label_col)
-    print('开始对数据进行非线性相关分析......')
+    print('-----  非线性相关分析  -----')
     if label_col is None:
         ths_data = data[columnslist]
         if method == 'spearman' or method == 'kendall':
@@ -284,12 +276,12 @@ def nonlinear_corr_analysis(data,y = None,columnslist = None,label_col = None,th
         corr_df = corr_df.sort_values(corr_df.columns[0])
 
         plt = Data_plot.plot_bar_analysis(corr_df,corr_df.columns,threshold = [threshold,-threshold])
-        plt.ylim([-1.1,1.1])
         plt.title('correlation with '+str(columnslist[-1]))
         plt.show()
-        drop_col = list(corr_df.loc[abs(corr_df.iloc[:,0])<threshold].index)
-        
-        drop_col = drop_col + list(set(corr_df.index)-set(corr_df.dropna().index))
+        #如果有nan值，则用0填充
+        abscorr = abs(corr_df.iloc[:,0]).fillna(0)
+        drop_col = list(corr_df.loc[abscorr<threshold].index)
+
     else:
         label = set(data[label_col])
         corr_df_total = pd.DataFrame()
@@ -304,6 +296,7 @@ def nonlinear_corr_analysis(data,y = None,columnslist = None,label_col = None,th
                                 'corr_'+ str(lab) +'_' + columnslist[-1]})
 
             elif method == 'distance':
+                d_corr = []
                 ths_data_y = np.array(data[columnslist[-1]])
                 for col_x in columnslist[:-1]:
                     ths_data_x = np.array(data[col_x])
@@ -317,36 +310,30 @@ def nonlinear_corr_analysis(data,y = None,columnslist = None,label_col = None,th
         if mix_method == 'max': 
             mix_corr_df = pd.DataFrame(corr_df_total.max(axis = 1),columns =['max_label_corr_'+columnslist[-1]])
         elif mix_method == 'min':
-            mix_corr_df = pd.DataFrame(corr_df_total.min(axis = 1),columns =['max_label_corr_'+columnslist[-1]])
+            mix_corr_df = pd.DataFrame(corr_df_total.min(axis = 1),columns =['min_label_corr_'+columnslist[-1]])
         elif mix_method == 'mean':
-            mix_corr_df = pd.DataFrame(corr_df_total.mean(axis = 1),columns =['max_label_corr_'+columnslist[-1]])
-        
+            mix_corr_df = pd.DataFrame(corr_df_total.mean(axis = 1),columns =['mean_label_corr_'+columnslist[-1]])
+       
         mix_corr_df = mix_corr_df.sort_values(mix_corr_df.columns[0])
         corr_df = mix_corr_df
-        plt = Data_plot.plot_bar_analysis(mix_corr_df,mix_corr_df.columns,threshold = [threshold,-threshold])
-        plt.ylim([-1.1,1.1])
+        
+        plt = Data_plot.plot_bar_analysis(corr_df,corr_df.columns,threshold = [threshold,-threshold])
         plt.title(mix_method + ' correlation with '+str(columnslist[-1]))
         plt.show()
+        #如果有nan值，则用0填充
+        abscorr = abs(corr_df.iloc[:,0]).fillna(0)
+        drop_col = list(corr_df.loc[abscorr<threshold].index)
+#        drop_col = list(mix_corr_df.loc[abs(mix_corr_df.iloc[:,0])<threshold].index)
         
-        corr_df_total = corr_df_total.reindex(mix_corr_df.index)
-        plt = Data_plot.plot_bar_analysis(corr_df_total,corr_df_total.columns,threshold = [threshold,-threshold])
-        plt.show()
-        
-        drop_col = list(mix_corr_df.loc[abs(mix_corr_df.iloc[:,0])<threshold].index)
-        
-    print('非线性相关分析(阈值：{})：原数据：{}列，剔除数据{}列，筛选出：{}列。'.format(
-            threshold,data.shape[1]-1,len(drop_col),data.shape[1]-len(drop_col)-1))            
+    print('非线性相关分析(阈值：{}结果)：原数据：{}列，剔除数据{}列，筛选出：{}列。'.format(
+            threshold,corr_df.shape[0],len(drop_col),corr_df.shape[0]-len(drop_col)))            
     if isdrop:
         data = data.drop(list(drop_col),axis =1)
-        data = data.drop(y.columns[0],axis =1)
+        if y is not None:
+            data = data.drop(pd.DataFrame(y).columns[0],axis =1)
+            data = data.reindex(index = y.index)
     return data,corr_df,drop_col
         
-def pls_corr_analysis(data,columnslist = None,label_col = None,threshold = 0.8,
-                      mix_method = 'max',isdrop = True):
-    '''
-    偏相关系数法
-    '''
-    pass
 
 def granger_causal_analysis(data,columnslist = None,label_col = None,threshold = 0.8,
                       mix_method = 'max',k=1,m=1,isdrop = False):

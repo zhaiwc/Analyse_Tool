@@ -427,33 +427,32 @@ def plot_bar_analysis(data,columnslist,label_col = None,threshold = None):
     col3  -0.7       0.5
     
     '''
-
-    left_x,left_y=0,0
-    for i,col in enumerate(columnslist):
-        x = np.array(data[col])
-        index = np.arange(len(x))
-        plt.figure(1, figsize=(4, 4))
-        
-        #设定图形大小
-        width,height=1.5,0.5
-        #画bar图
-        bar_area=[left_x,left_y,width,height]
-        area_bar=plt.axes(bar_area)
-      
-        area_bar.bar(index,x, alpha=0.8, color='green')
-        area_bar.set_title(columnslist[i])
-        #画阈值
-        if threshold is not None:
-            for thres in threshold:
-                line_data = np.ones((len(x),2))
-                line_data = line_data * thres
-                line_data = pd.DataFrame(line_data,columns = ['corr','label'])
+    data = data.dropna()
+    for col in columnslist:
+        if data.shape[0] > 30:
+            data = pd.concat([data.iloc[0:15,:],data.iloc[-15:,:]])
             
-                area_bar.plot(index,line_data,'r--')
-        index = data.index.tolist()
-        index.insert(0,0)
-        area_bar.set_xticklabels(index)
-        left_y -= 0.65 
+        if data.shape[0] > 15:
+            #超过15个数据，竖向排列
+            ndarry_x = np.array(data.loc[:,col])
+            ndarry_y = np.array(data.index)
+        else:
+            #不超过15个 横向排列
+            ndarry_x = np.array(data.index)
+            ndarry_y = np.array(data.loc[:,col])
+        # 画bar图    
+        sns.barplot(x=ndarry_x, y=ndarry_y, palette="Blues_d")
+        # 画阈值
+        if threshold is not None:
+            for thres in threshold: 
+                if data.shape[0] > 15:
+                    line_data_y = np.array(range(data.shape[0]))
+                    line_data_x = np.ones(data.shape) * thres
+                else:
+                    line_data_x = np.array(range(data.shape[0]))
+                    line_data_y = np.ones(range(data.shape[0]),1) * thres
+                plt.plot(line_data_x,line_data_y,'r--')
+
     return plt
 
 def plot_confusion_matrix(y_truth, y_predict, cmap=plt.cm.Blues):
