@@ -105,7 +105,7 @@ def plot_scatter(data,columnslist = None,label_col = None):
         
     return plt
 
-def plot_line(data,columnslist = None,label_col = None):
+def plot_line(data,columnslist = None,label_col = None, c = None):
     '''
     一维折线：x轴：range(len(data)) ,y轴：data.
     二维折线：x轴：data[0],y轴：data[1] 
@@ -118,8 +118,8 @@ def plot_line(data,columnslist = None,label_col = None):
     if label_col is not None and label_col in columnslist:
         columnslist.remove(label_col)
         
-    
-    global c 
+    if c is None:
+        c = ['red','blue','green','gold','y'] 
         
     len_col = len(columnslist)
     
@@ -417,7 +417,7 @@ def plot_autocorr(data,columnslist = None,label_col = None):
         plt = sns.pairplot(data, hue = label_col)
     return plt
 
-def plot_bar_analysis(data,columnslist,label_col = None,threshold = None):
+def plot_bar_analysis(data,columnslist = None ,label_col = None,threshold = None):
     '''
     实现画有阈值的bar分析图。
     输入的数据：
@@ -428,11 +428,14 @@ def plot_bar_analysis(data,columnslist,label_col = None,threshold = None):
     
     '''
     data = data.dropna()
+    if columnslist is None:
+        columnslist = data.columns
+        
     for col in columnslist:
         if data.shape[0] > 30:
             data = pd.concat([data.iloc[0:15,:],data.iloc[-15:,:]])
             
-        if data.shape[0] > 15:
+        if data.shape[0] > 5:
             #超过15个数据，竖向排列
             ndarry_x = np.array(data.loc[:,col])
             ndarry_y = np.array(data.index)
@@ -445,12 +448,12 @@ def plot_bar_analysis(data,columnslist,label_col = None,threshold = None):
         # 画阈值
         if threshold is not None:
             for thres in threshold: 
-                if data.shape[0] > 15:
+                if data.shape[0] > 5:
                     line_data_y = np.array(range(data.shape[0]))
                     line_data_x = np.ones(data.shape) * thres
                 else:
                     line_data_x = np.array(range(data.shape[0]))
-                    line_data_y = np.ones(range(data.shape[0]),1) * thres
+                    line_data_y = np.ones((data.shape[0],1)) * thres
                 plt.plot(line_data_x,line_data_y,'r--')
 
     return plt

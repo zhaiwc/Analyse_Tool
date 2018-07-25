@@ -14,9 +14,10 @@ from sklearn.cluster import KMeans,DBSCAN,AgglomerativeClustering
 from sklearn.ensemble import RandomForestClassifier,GradientBoostingClassifier
 from sklearn.ensemble import RandomForestRegressor,GradientBoostingRegressor
 from xgboost import XGBRegressor,XGBClassifier
-from collections import Counter
+from collections import Counter,defautdict
 
 import pdb
+import copy
 import pandas as pd
 import numpy as np
 
@@ -28,15 +29,357 @@ def split_train_test(x,y,test_size = 0.2,random_state = None):
             x, y, test_size=test_size, random_state=random_state)
     return X_train, X_test, y_train, y_test
 
-def cls_sample_balance(x,y,method ='random',rank_by = None,Multiple = 4,boostrap =False,benchmark = 'min'):
+def reg_sample_balance(x,y,benchmark = 'min',Multiple = 3,boostrap = False):
+    '''
+    回归样本均衡
+    '''
+    print('-----开始进行样本均衡-----')
+    #划分上下极端样本，连续样本离散化
+    label_y = copy.copy(y)
+    label_y[ label_y > label_y.mean() + label_y.std()] = ''
+    label_y[ label_y < label_y.mean() - label_y.std()] = 3
+    label_y[ (label_y <= label_y.mean() - label_y.std()) & (label_y >= label_y.mean() - label_y.std())] = 2
+    #统计y的count()
+    cnt = Counter(label_y.iloc[:,0])
+    print('当前分类信息：',cnt)
+    x_res = pd.DataFrame()
+    y_res = pd.DataFrame()
+    if benchmark == 'min':
+        #计算最小的类和类的个数(上采样)
+        min_num = min(cnt.values())
+
+        for key in cnt.keys():
+            if cnt[key] < min_num * Multiple:
+                idx = label_y[label_y==key].dropna().index
+            else:
+                idx = label_y[label_y==key].dropna().sample(int(min_num * Multiple),replace=boostrap).index
+                    
+            x_new = x.loc[idx,:]
+            y_new = y.loc[idx,:]
+            x_res = pd.concat([x_res,x_new])
+            y_res = pd.concat([y_res,y_new])
+            
+            #统计结果y的count()
+            cnt_res = Counter(y_res.iloc[:,0])
+            print('样本均衡后分类信息：',cnt_res)
+            
+    elif benchmark == 'max': 
+        #计算最大的类和类的个数（下采样）
+        max_num = max(cnt.values())
+        for key in cnt.keys():
+            if cnt[key] > max_num / Multiple:
+                idx = label_y[label_y==key].dropna().index
+            else:
+                #从小数目中采集多个样本只能重采样。                  
+                idx = label_y[label_y==key].dropna().sample(int(max_num / Multiple),replace=True).index
+                    
+            x_new = x.loc[idx,:]
+            y_new = y.loc[idx,:]
+            x_res = pd.concat([x_res,x_new])
+            y_res = pd.concat([y_res,y_new])
+            
+            #统计结果y的count()
+            cnt_res = Counter(y_res.iloc[:,0])
+            print('样本均衡后分类信息：',cnt_res)
+    elif benchmark == 'all':
+        #对全部样本进行采样，只能进行重采样
+        idx = y.dropna().sample(len(y),replace=True).index
+        
+        x_res = x.loc[idx,:]
+        y_res = y.loc[idx,:]
+            
+    return x_res,y_res
+
+class reg_model():
+    def __init__(self,method,isGridSearch = True):
+        #设置基本参数
+        self.method = method
+        self.isGridSearch = isGridSearch
+        #设置缺省参数
+        self.reg_model = None
+        self.parameters = None
+        self.factor_name = None
+        self.best_parameters = None
+    
+    def set_parameters(self,parameters = None):
+        #设置模型参数:如果需要调参，则自定义的是多组参数调参范围，如果不需要调参，则自定义一组参数即可
+        if parameters is None: #用户不传参数，则使用默认参数
+            if self.isGridSearch == True:
+                if self.method == 'linear':
+                    para = None
+                elif self.method == 'ridge':
+                    para = {'alpha':[0.01,0.1,1,10,100]}
+                    
+            else:
+                if self.method == 'linear':
+                    para = None
+                elif self.method == 'ridge':
+                    para = {'alpha':[1]}
+                    
+        else:#用户传参数，则以用户参数为准
+            if self.isGridSearch == True:
+                pass
+            else:
+                pass
+        return para
+        
+    def fit(self,x,y):
+        x_train = np.array(x)
+        y_train = np.array(y)
+        self.factor_name = list(x.columns)
+        para = self.set_parameters()
+        
+        scoring = {"mse": make_scorer(mean_squared_error),}
+        
+        if self.method == 'linear':
+            self.reg_model = linear_model.LinearRegression()     
+            self.reg_model.fit(x_train,y_train)
+            
+        elif self.method == 'ridge':
+            
+            self.reg_model = GridSearchCV(linear_model.Ridge(),param_grid=para,cv=5,scoring=scoring,refit ='mse')
+            self.reg_model.fit(x_train,y_train)
+#        if self.isGridSearch:
+#            #需要网格搜索
+#            pass
+#        else:
+#            #根据自己输入的参数
+#            pass
+            
+    def get_vip(self):
+        #计算关键因子，
+        col_name = 'variable importance'
+        if self.method in ['linear'] :
+            var_importance = pd.DataFrame(abs(self.reg_model.coef_),index = [col_name] ,columns = self.factor_name)
+        elif self.method in ['ridge','lasso',''] :
+            var_importance = pd.DataFrame(abs(self.reg_model.best_estimator_.coef_),index = [col_name] ,columns = self.factor_name)
+        res = var_importance.T.sort_values(col_name)
+        plt = Data_plot.plot_bar_analysis(res)
+        plt.title('variable importance')
+        plt.show()
+        return res
+    
+    def predict(self,x):
+        #模型预测
+        x_pred = np.array(x)
+        return self.reg_model.predict(x_pred)
+        
+    
+    def get_score(self,train_x,train_y,valid_x,valid_y,is_plot = True):
+        #计算模型评分
+        train_pred_y = self.reg_model.predict(train_x)
+        train_mse = mean_squared_error(train_y,train_pred_y)
+        train_r2 = r2_score(train_y,train_pred_y)
+        train_pred_y = pd.DataFrame(train_pred_y,columns=['train_pred_y'],index = train_y.index)
+        #画y预测与y真实 按原顺序比较
+        if is_plot:
+            plt = Data_plot.plot_scatter(train_y)   
+            plt = Data_plot.plot_line(train_pred_y,c=['r--'])
+            plt.show()
+        
+        
+            plot_train_data = pd.concat([train_y,train_pred_y],axis=1)
+            plt = Data_plot.plot_scatter(plot_train_data) 
+            line_data = np.array([[plot_train_data.max()[0],plot_train_data.max()[0]],[plot_train_data.min()[0],plot_train_data.min()[0]]])
+            plt = Data_plot.plot_line(pd.DataFrame(line_data,columns=['y_true','y_pred']))
+            plt.show()
+    
+        print('训练集：mse = {} , r2 = {}'.format(train_mse,train_r2))
+        
+        valid_pred_y = self.reg_model.predict(valid_x)
+        valid_mse = mean_squared_error(valid_y,valid_pred_y)
+        valid_r2 = r2_score(valid_y,valid_pred_y)
+        valid_pred_y = pd.DataFrame(valid_pred_y,columns=['valid_pred_y'],index = valid_y.index)
+        
+        if is_plot:
+            plt = Data_plot.plot_scatter(valid_y)
+            plt = Data_plot.plot_line(valid_pred_y,c=['r--'])
+            plt.show()
+            
+            plot_valid_data = pd.concat([valid_y,valid_pred_y],axis=1)
+            plt = Data_plot.plot_scatter(plot_valid_data) 
+            line_data = np.array([[plot_valid_data.max()[0],plot_valid_data.max()[0]],[plot_valid_data.min()[0],plot_valid_data.min()[0]]])
+            plt = Data_plot.plot_line(pd.DataFrame(line_data,columns=['y_true','y_pred']),)
+            plt.show()
+            
+        print('验证集：mse = {} , r2 = {}'.format(valid_mse,valid_r2))
+        return valid_mse,valid_r2
+
+class reg_stack():
+    '''
+    对相同的模型进行stack
+        抽样 - 筛选 - 拟合 - 组合 - 预测
+    '''
+    def __init__(self,listModelName,isGridSearch = True , dict_para = None,n_model = 1,
+                 benchmark = 'all',boostrap = True,ratioFactorSampling = 1,KPI = 'mse',threshold = None,TopN = 3):
+        self.listModelName = listModelName
+        self.isGridSearch = isGridSearch
+        self.dict_para = dict_para
+        self.n_model = n_model
+        self.benchmark = benchmark
+        self.boostrap = boostrap
+        self.ratioFactorSampling = ratioFactorSampling
+        self.KPI = KPI
+        self.threshold = threshold
+        self.TopN = TopN
+        #缺省参数
+        self.train_model = defautdict(list)
+        
+    def sampling(self,x,y):
+        '''
+        抽样：
+        样本抽样：必须，默认对全部样本进行重采样
+        因子抽样：可选，默认不抽因子
+        '''
+        if self.ratioFactorSampling == 1:#不筛选因子
+            res_x ,res_y = reg_sample_balance(x,y,benchmark = self.benchmark,boostrap = self.boostrap)
+        elif  self.ratioFactorSampling > 0 and self.ratioFactorSampling < 1: #按比例筛选因子
+            res_x ,res_y = reg_sample_balance(x,y,benchmark = self.benchmark,boostrap = self.boostrap)
+            res_x = res_x.sample(res_x.shape[1] * self.ratioFactorSampling,axis = 1)
+        return res_x,res_y
+    
+    def filtrate(self,model_list,x,y):
+        '''
+        筛选：
+        根据Top_N 筛选
+        根据min_mse,min_r2筛选
+        '''
+        res = []
+        if self.threshold is None:#按照TopN筛选
+            if len(model_list) < self.TopN:
+                res = model_list
+            else:
+                res_dict = {}
+                if self.KPI == 'mse': 
+                    for i,reg in enumerate(model_list):
+                        res_dict[i] = mean_squared_error(y,reg.predict(x))
+                    res_dict = pd.DataFrame(res_dict,columns = ['mse']).sort_values('mse').iloc[:self.TopN,:]
+                elif self.KPI == 'r2':
+                    for i,reg in enumerate(model_list):
+                        res_dict[i] = r2_score(y,reg.predict(x))
+                    res_dict = pd.DataFrame(res_dict,columns = ['r2']).sort_values('r2').iloc[-self.TopN:,:]
+                for reg_idx in res_dict.index:
+                    res.append(model_list[reg_idx])
+                    
+        else:#按照阈值筛选
+            for reg in model_list:
+                if self.KPI == 'mse':
+                    kpi = mean_squared_error(y,reg.predict(x))
+                    if kpi < self.threshold:
+                        res.append(reg)
+                        
+                elif self.KPI == 'r2':
+                    kpi = r2_score(y,reg.predict(x))
+                    if kpi > self.threshold:
+                        res.append(reg)
+        return res
+    
+    def combine(self,model_list , acc_list =method = 'avg'):
+        '''
+        组合：
+        avg:加权平均 ，weight,
+        '''
+        pass
+    
+    def fit(self,x,y):
+        '''
+        拟合：
+        '''
+        acc_rate = []
+        basic_reg = ['linear','ridge']
+        X_train, X_test, y_train, y_test = split_train_test(x,y,test_size=0.1)
+        for model_name in self.listModelName:
+            if model_name in basic_reg:
+                model_list = []
+                for i in self.n_model:
+                #一共生成n_model个模型，先进行样本抽样 
+                    X_train_sampling , y_train_sampling = self.sampling(X_train,y_train)
+                    reg = reg_model(model_name,isGridSearch = self.isGridSearch)
+                    
+                    if model_name in self.dict_para.keys():
+                        #如果用户自定义了参数范围，则对模型参数进行设置
+                        reg.set_parameters(self.dict_para[model_name])
+                    else:
+                        pass
+                    #模型拟合
+                    reg.fit(X_train_sampling,y_train_sampling)
+                    model_list.append(reg)
+                #根据筛选条件
+                self.train_model[model_name] = self.filtrate(model_list,X_test,y_test)
+                
+            #记录每一个大类的准确率：
+            acc_rate 
+            elif model_name == 'pca_reg':
+                pass
+        
+        
+                
+        pass
+    
+    def predict(self):
+        '''
+        预测：
+        '''
+        pass
+    
+    def get_vip(self):
+        '''
+        计算融合 关键因子
+        '''
+        pass
+    
+
+class reg_stack():    
+    '''
+    对相同的模型进行stack
+    '''
+    def __init__(self,n_model = 10,min_mse = None,pca_clu = False,para ={'method':'linear'},y_change = None):
+        self.n_model = n_model
+        self.model_list = []
+        self.min_mse = min_mse
+        self.pca_clu = pca_clu
+        self.para = para
+        self.mse_list = []
+        self.y_change = y_change
+
+    def fit(self,train_valid_x,train_valid_y):
+        for i in range(self.n_model):
+            #拆分训练集，验证集
+            train_x,valid_x,train_y,valid_y = Data_Preprocess.split_train_test(train_valid_x,train_valid_y)
+            if self.pca_clu:
+                reg = pca_clu_reg(self.para)
+                reg.fit(train_x,train_y)
+                
+                if self.y_change is None:
+                    mse = mean_squared_error(valid_y,reg.predict(valid_x))
+                else:
+                    mse = mean_squared_error(self.y_change.change_back(valid_y),self.y_change.change_back(pd.DataFrame(reg.predict(valid_x))))
+
+                if self.min_mse is None:
+                    self.model_list.append(reg)
+                    self.mse_list.append(mse)
+                else:
+                    if mse < self.min_mse:
+                        self.model_list.append(reg)
+                        self.mse_list.append(mse)
+            else:#普通方法
+                pass
+                        
+    def predict(self,x):
+        res = []
+        for model in self.model_list:
+            res.append(pd.DataFrame(model.predict(x)))
+        res = np.array(pd.concat(res,axis=1).mean(axis=1))
+        return res       
+
+def cls_sample_balance(x,y,Multiple = 3,boostrap = False,benchmark = 'min'):
     '''
     样本均衡：
-    通过筛选，使得正负样本尽量均衡。保证各类样本比例不超过4:1,by label 。
-    method = 'near':如果样本失衡，则根据排序类别的顺序下，取最近的样本。
+    通过筛选，使得正负样本尽量均衡。保证各类样本比例不超过3:1,by label 。
     method = 'random':如果样本失衡，则在多数类别中，进行随机抽取。
     Multiple:大类样本与小类样本数量比
     boostrap：是否重采样
-    benchmark：max :以大类为基准 ，min : 以小类为基准
+    benchmark：max :以大类为基准，下采样 ，min : 以小类为基准，上采样
     '''
     print('-----开始进行样本均衡-----')
     #统计y的count()
@@ -45,44 +388,14 @@ def cls_sample_balance(x,y,method ='random',rank_by = None,Multiple = 4,boostrap
     x_res = pd.DataFrame()
     y_res = pd.DataFrame()
     if benchmark == 'min':
-        #计算最小的类和类的个数
+        #计算最小的类和类的个数(上采样)
         min_num = min(cnt.values())
-        for key in cnt.keys():
-            if cnt[key] == min_num:
-                minclass = key
-    样本
+
         for key in cnt.keys():
             if cnt[key] < min_num * Multiple:
                 idx = y[y==key].dropna().index
             else:
-                if method =='near':
-                    #合并x,y，并排序
-                    data = pd.concat([x,y],axis =1)
-                    data = data.sort_values(rank_by)
-                    #计算最少类的idx,获取最小类rank列的范围
-                    idx_short = y[y==minclass].dropna().index
-                    max_idx = data.loc[idx_short[0] ,rank_by]
-                    min_idx = data.loc[idx_short[-1],rank_by]
-                    #计算当前过多的类的idx
-                    idx_long = y[y==key].dropna().index
-                    data = data.loc[idx_long,:]
-                    if len(data[(data[rank_by]>min_idx) & (data[rank_by]<max_idx)]) > min_num * Multiple:
-                        idx = data[data[rank_by]>min_idx & data[rank_by]<max_idx].sample(int(min_num * Multiple),replace=boostrap).index
-                    else:
-                        #如果最少类所夹的范围不足以取相应的数据，则在数据前后补齐。
-                        idx = list(data[(data[rank_by]>min_idx) & (data[rank_by]<max_idx)].index)
-                        part2len = abs(int((len(data[(data[rank_by]>min_idx) & (data[rank_by]<max_idx)]) - min_num * Multiple) /2)) 
-                        if part2len > len(data[data[rank_by]<min_idx]):
-                            idx = idx + list(data[data[rank_by]<min_idx].index)                   
-                        else:
-                            idx = idx + list(data[data[rank_by]<min_idx].sample(int(part2len),replace=boostrap).index)
-                        if part2len > len(data[data[rank_by]>max_idx]):
-                            idx = idx + list(data[data[rank_by]>max_idx].index)
-                        else:
-                            idx = idx + list(data[data[rank_by]>max_idx].sample(int(part2len),replace=boostrap).index)
-                    
-                elif method == 'random':
-                    idx = y[y==key].dropna().sample(int(min_num * Multiple),replace=boostrap).index
+                idx = y[y==key].dropna().sample(int(min_num * Multiple),replace=boostrap).index
                     
             x_new = x.loc[idx,:]
             y_new = y.loc[idx,:]
@@ -94,7 +407,7 @@ def cls_sample_balance(x,y,method ='random',rank_by = None,Multiple = 4,boostrap
             print('样本均衡后分类信息：',cnt_res)
     
     elif benchmark == 'max': 
-        #计算最大的类和类的个数
+        #计算最大的类和类的个数（下采样）
         max_num = max(cnt.values())
         for key in cnt.keys():
             if cnt[key] > max_num / Multiple:
@@ -111,146 +424,153 @@ def cls_sample_balance(x,y,method ='random',rank_by = None,Multiple = 4,boostrap
             #统计结果y的count()
             cnt_res = Counter(y_res.iloc[:,0])
             print('样本均衡后分类信息：',cnt_res)
-    
+    elif benchmark == 'all':
+        #对全部样本进行采样，只能进行重采样
+        idx = y.dropna().sample(len(y),replace=True).index
+        
+        x_res = x.loc[idx,:]
+        y_res = y.loc[idx,:]
+        
     return x_res,y_res
 
-def reg_model(x,y,method = 'linear',parameters = None):
-#    print('-----开始构建回归模型，方法：{}-----'.format(method))
-    if method  == 'linear':
-        reg = linear_model.LinearRegression()     
-        reg.fit(x,y)
-        parameters = None
-        
-    elif method == 'ridge':
-        parameters = {
-                "alpha": [0.01,0.1,1,10,100],
-                    }
-        scoring = {
-                "mse": make_scorer(mean_squared_error),
-                }
-        reg = GridSearchCV(linear_model.Ridge(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
-        reg.fit(np.array(x),np.array(y).reshape(len(y),))
-        
-    elif method == 'lasso':
-        parameters = {
-                "alpha": [0.01,0.1,1,10,100],
-                    }
-        scoring = {
-                "mse": make_scorer(mean_squared_error),
-                }
-        reg = GridSearchCV(linear_model.Lasso(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
-        reg.fit(np.array(x),np.array(y).reshape(len(y),))
-        parameters = reg.best_params_
-        
-    elif  method == 'elasticnet':
-        parameters = {
-                "alpha": [0.1,1,10],
-                "l1_ratio":[.1, .5,.9]
-                    }
-        scoring = {
-                "mse": make_scorer(mean_squared_error),
-                }
-        reg = GridSearchCV(linear_model.ElasticNet(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
-        reg.fit(np.array(x),np.array(y).reshape(len(y),))
-        parameters = reg.best_params_
-        
-    elif method == 'kernelridge':
-        parameters = {
-                "alpha": [0.01,0.1,1,10,100],
-                "gamma":[3,5,7]
-                    }
-        scoring = {
-                "mse": make_scorer(mean_squared_error),
-                }
 
-        reg = GridSearchCV(kernel_ridge.KernelRidge(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
-        reg.fit(np.array(x),np.array(y).reshape(len(y),))
-        
-        parameters = reg.best_params_
-    
-    elif method == 'svr':
-        if parameters is not None:
-            for key in parameters.keys():
-                if type(parameters[key]) is list:
-                    pass
-                else:
-                    parameters[key] = [parameters[key]]
-        else:
-            parameters = {
-                            "C": [10,100,1000,10000],
-                            "epsilon": [10,1,0.1,0.01],
-
-                        }
-            scoring = {
-                "mse": make_scorer(mean_squared_error),
-                }
-        reg = GridSearchCV(SVR(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
-        reg.fit(np.array(x),np.array(y).reshape(len(y),))
-
-        parameters = reg.best_params_
-        
-    elif method == 'rf':
-        if parameters is not None:
-            for key in parameters.keys():
-                if type(parameters[key]) is list:
-                    pass
-                else:
-                    parameters[key] = [parameters[key]]
-        else:
-            parameters = {
-                            "max_depth": [3, 5, 7],
-                            "n_estimators": [300,500,1000],
-                        }
-        scoring = {
-                "mse": make_scorer(mean_squared_error),
-                }
-        reg = GridSearchCV(RandomForestRegressor(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
-        reg.fit(np.array(x),np.array(y).reshape(len(y),))
-        
-        parameters = reg.best_params_
-    
-    elif method == 'gbm':
-        if parameters is not None:
-            for key in parameters.keys():
-                if type(parameters[key]) is list:
-                    pass
-                else:
-                    parameters[key] = [parameters[key]]
-        else:
-            parameters = {
-                            "max_depth": [3, 5],
-                            #"learning_rate": [0.01, 0.1],
-                            "n_estimators": [500,1000],
-                        }
-        scoring = {
-                "mse": make_scorer(mean_squared_error),
-                }
-        reg = GridSearchCV(GradientBoostingRegressor(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
-        reg.fit(np.array(x),np.array(y).reshape(len(y),))
-        
-        parameters = reg.best_params_
-    
-    elif method =='xgb':
-        if parameters is not None:
-            for key in parameters.keys():
-                if type(parameters[key]) is list:
-                    pass
-                else:
-                    parameters[key] = [parameters[key]]
-        else:
-            parameters = {
-                            "max_depth": [3, 5],
-                            "learning_rate": [0.01, 0.1],
-                            "n_estimators": [500,1000],
-                        }
-        scoring = {
-                "mse": make_scorer(mean_squared_error),
-                }
-        reg = GridSearchCV(XGBRegressor(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
-        reg.fit(np.array(x),np.array(y).reshape(len(y),).astype(float))
-        
-        parameters = reg.best_params_
-    return reg,parameters
+#def reg_model(x,y,method = 'linear',parameters = None):
+##    print('-----开始构建回归模型，方法：{}-----'.format(method))
+#    if method  == 'linear':
+#        reg = linear_model.LinearRegression()     
+#        reg.fit(x,y)
+#        parameters = None
+#        
+#    elif method == 'ridge':
+#        parameters = {
+#                "alpha": [0.01,0.1,1,10,100],
+#                    }
+#        scoring = {
+#                "mse": make_scorer(mean_squared_error),
+#                }
+#        reg = GridSearchCV(linear_model.Ridge(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
+#        reg.fit(np.array(x),np.array(y).reshape(len(y),))
+#        
+#    elif method == 'lasso':
+#        parameters = {
+#                "alpha": [0.01,0.1,1,10,100],
+#                    }
+#        scoring = {
+#                "mse": make_scorer(mean_squared_error),
+#                }
+#        reg = GridSearchCV(linear_model.Lasso(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
+#        reg.fit(np.array(x),np.array(y).reshape(len(y),))
+#        parameters = reg.best_params_
+#        
+#    elif  method == 'elasticnet':
+#        parameters = {
+#                "alpha": [0.1,1,10],
+#                "l1_ratio":[.1, .5,.9]
+#                    }
+#        scoring = {
+#                "mse": make_scorer(mean_squared_error),
+#                }
+#        reg = GridSearchCV(linear_model.ElasticNet(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
+#        reg.fit(np.array(x),np.array(y).reshape(len(y),))
+#        parameters = reg.best_params_
+#        
+#    elif method == 'kernelridge':
+#        parameters = {
+#                "alpha": [0.01,0.1,1,10,100],
+#                "gamma":[3,5,7]
+#                    }
+#        scoring = {
+#                "mse": make_scorer(mean_squared_error),
+#                }
+#
+#        reg = GridSearchCV(kernel_ridge.KernelRidge(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
+#        reg.fit(np.array(x),np.array(y).reshape(len(y),))
+#        
+#        parameters = reg.best_params_
+#    
+#    elif method == 'svr':
+#        if parameters is not None:
+#            for key in parameters.keys():
+#                if type(parameters[key]) is list:
+#                    pass
+#                else:
+#                    parameters[key] = [parameters[key]]
+#        else:
+#            parameters = {
+#                            "C": [10,100,1000,10000],
+#                            "epsilon": [10,1,0.1,0.01],
+#
+#                        }
+#            scoring = {
+#                "mse": make_scorer(mean_squared_error),
+#                }
+#        reg = GridSearchCV(SVR(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
+#        reg.fit(np.array(x),np.array(y).reshape(len(y),))
+#
+#        parameters = reg.best_params_
+#        
+#    elif method == 'rf':
+#        if parameters is not None:
+#            for key in parameters.keys():
+#                if type(parameters[key]) is list:
+#                    pass
+#                else:
+#                    parameters[key] = [parameters[key]]
+#        else:
+#            parameters = {
+#                            "max_depth": [3, 5, 7],
+#                            "n_estimators": [300,500,1000],
+#                        }
+#        scoring = {
+#                "mse": make_scorer(mean_squared_error),
+#                }
+#        reg = GridSearchCV(RandomForestRegressor(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
+#        reg.fit(np.array(x),np.array(y).reshape(len(y),))
+#        
+#        parameters = reg.best_params_
+#    
+#    elif method == 'gbm':
+#        if parameters is not None:
+#            for key in parameters.keys():
+#                if type(parameters[key]) is list:
+#                    pass
+#                else:
+#                    parameters[key] = [parameters[key]]
+#        else:
+#            parameters = {
+#                            "max_depth": [3, 5],
+#                            #"learning_rate": [0.01, 0.1],
+#                            "n_estimators": [500,1000],
+#                        }
+#        scoring = {
+#                "mse": make_scorer(mean_squared_error),
+#                }
+#        reg = GridSearchCV(GradientBoostingRegressor(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
+#        reg.fit(np.array(x),np.array(y).reshape(len(y),))
+#        
+#        parameters = reg.best_params_
+#    
+#    elif method =='xgb':
+#        if parameters is not None:
+#            for key in parameters.keys():
+#                if type(parameters[key]) is list:
+#                    pass
+#                else:
+#                    parameters[key] = [parameters[key]]
+#        else:
+#            parameters = {
+#                            "max_depth": [3, 5],
+#                            "learning_rate": [0.01, 0.1],
+#                            "n_estimators": [500,1000],
+#                        }
+#        scoring = {
+#                "mse": make_scorer(mean_squared_error),
+#                }
+#        reg = GridSearchCV(XGBRegressor(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
+#        reg.fit(np.array(x),np.array(y).reshape(len(y),).astype(float))
+#        
+#        parameters = reg.best_params_
+#    return reg,parameters
 
 def cls_model(x,y,method = 'logistic',parameters = None,Top_N = 20):
     if method  == 'logistic':
@@ -604,48 +924,7 @@ class pca_clu_reg():
         return np.array(res)
             
             
-class reg_stack():    
-    '''
-    对相同的模型进行stack
-    '''
-    def __init__(self,n_model = 10,min_mse = None,pca_clu = False,para ={'method':'linear'},y_change = None):
-        self.n_model = n_model
-        self.model_list = []
-        self.min_mse = min_mse
-        self.pca_clu = pca_clu
-        self.para = para
-        self.mse_list = []
-        self.y_change = y_change
 
-    def fit(self,train_valid_x,train_valid_y):
-        for i in range(self.n_model):
-            #拆分训练集，验证集
-            train_x,valid_x,train_y,valid_y = Data_Preprocess.split_train_test(train_valid_x,train_valid_y)
-            if self.pca_clu:
-                reg = pca_clu_reg(self.para)
-                reg.fit(train_x,train_y)
-                
-                if self.y_change is None:
-                    mse = mean_squared_error(valid_y,reg.predict(valid_x))
-                else:
-                    mse = mean_squared_error(self.y_change.change_back(valid_y),self.y_change.change_back(pd.DataFrame(reg.predict(valid_x))))
-
-                if self.min_mse is None:
-                    self.model_list.append(reg)
-                    self.mse_list.append(mse)
-                else:
-                    if mse < self.min_mse:
-                        self.model_list.append(reg)
-                        self.mse_list.append(mse)
-            else:#普通方法
-                pass
-                        
-    def predict(self,x):
-        res = []
-        for model in self.model_list:
-            res.append(pd.DataFrame(model.predict(x)))
-        res = np.array(pd.concat(res,axis=1).mean(axis=1))
-        return res
 
 class cls_model_stack():
     '''

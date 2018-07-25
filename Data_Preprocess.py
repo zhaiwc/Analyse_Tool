@@ -8,6 +8,7 @@
 """
 import pandas as pd
 import numpy as np
+import copy
 import pdb
 
 from collections import defaultdict,Counter
@@ -15,7 +16,7 @@ from sklearn import linear_model
 from sklearn import preprocessing
 from sklearn.neighbors import KNeighborsClassifier
 
-import copy
+
 def __check_label(data):
     '''
     筛选数据中的文本列
@@ -484,14 +485,6 @@ def drop_constant_col(data,columnlist = None ,label_col = None):
         data = data.drop(drop_col,axis =1)
     return data,drop_col
     
-def split_train_test(x,y,test_size = 0.2,random_state = None):
-    '''
-    拆分数据训练集，测试集
-    '''
-    X_train, X_test, y_train, y_test = train_test_split(
-            x, y, test_size=test_size, random_state=random_state)
-    return X_train, X_test, y_train, y_test
-
 
 
 #def data_balance(x,y,label_col = None,method ='random',rank_by = None ):
