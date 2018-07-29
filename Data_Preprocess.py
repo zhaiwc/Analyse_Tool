@@ -15,6 +15,7 @@ from collections import defaultdict,Counter
 from sklearn import linear_model
 from sklearn import preprocessing
 from sklearn.neighbors import KNeighborsClassifier
+#from sklearn.preprocessing import LabelEncoder,OneHotEncoder
 
 
 def __check_label(data):
@@ -205,96 +206,70 @@ def fill_nan(data,label_col = None, method = 1):
 class Data_Encoding():
     def __init__(self,method):
         self.method = method
-        self.map_dict = defaultdict(dict)
+        self.encoding = {}
         self.labelcolumns = None
         
-    def data2label(self,strdata,columnlist):
+    def fit(self,strdata,columnlist = None ):
         '''
         根据获取的数据,指定列,生成字典映射。
         order:顺序编码
         onehot:01独热编码
         onehotPCA,独热编码后降维
         '''
-
+        
+        if columnlist is None:
+            self.columnlist = strdata.columns
+        else:
+            self.columnlist = columnlist
         
         if self.method =='order':
-            codedata =copy.copy(strdata)
-            self.labelcolumns = columnlist
-            for col in columnlist:
-                #进行转换
-                data_col_gpby = strdata[[col]].groupby(strdata[col]).count()
+            for col in self.columnlist:
                 
-                for idx in range(len(data_col_gpby)):
-                    codedata[[col]] = codedata[[col]].replace(data_col_gpby.index[idx],idx)
-                    self.map_dict[col][idx] = data_col_gpby.index[idx]
-        elif self.method == 'onehot':
-            codedata = []
-            self.labelcolumns = columnlist
-            for col in columnlist:
-                #进行转换
-                thscol = pd.get_dummies(strdata[[col]])
-                #生成转换mapdict
-                drop_dup = thscol.drop_duplicates()
-                self.map_dict[col]['col'] = thscol.columns
-                for col_sub in thscol.columns:
-                    col_list = col_sub.split('_')
-                    self.map_dict[col][col_list[1]] = np.array(drop_dup[drop_dup.loc[:,col_sub] == 1])
+                Encoding = preprocessing.LabelEncoder()
+                Encoding.fit(strdata[[col]])
+                self.encoding[col] = Encoding
+            
+        elif self.method == 'onehot':#先转order,再转Oht
+            for col in self.columnlist:
+                self.encoding[col] = {}
+                Encoding = preprocessing.LabelEncoder()
+                temp = Encoding.fit_transform(strdata[[col]])
+                self.encoding[col]['order'] = Encoding
+                Oht = preprocessing.OneHotEncoder()
+                Oht.fit(temp.reshape(-1,1))
+                self.encoding[col]['Oht'] = Oht
                 
-                codedata.append(thscol)
-            codedata = pd.concat(codedata,axis=1)
-
-        return codedata
     
-    def label2data(self,codedata):
+    def inverse_transform(self,codedata):
 
         strdata =copy.copy(codedata)
         if self.method == 'order':
-            for key in self.map_dict:
-                for code in self.map_dict[key]:
-                    strdata[[key]] = strdata[[key]].replace(code,self.map_dict[key][code])
+            for key in self.encoding.keys:
+                strdata[[key]] = self.encoding[key][0].inverse_transform(codedata[[key]])
+
         elif self.method == 'onehot':
             #创建结果集
-            res = pd.DataFrame(np.ones((codedata.shape[0],len(self.labelcolumns))))
-            cnt = 0
-            
-            for col in codedata.columns:
-                col_list = col.split('_')
-                if  col_list[0] == res.columns[0]:
-                    pass
-                else:
-                    res = res.rename(columns = {cnt:col_list[0]})
-                    cnt += 1
-                #赋值
-                res.loc[codedata[codedata.loc[:,col]==1].index,col_list[0]] = col_list[1]
-                
-            strdata = res
-            
+            for key in self.encoding.keys:
+                temp = self.encoding[key]['Oht'].inverse_transform(codedata[[key]])
+                strdata[[key]] = self.encoding[key]['order'].inverse_transform(temp)
+                            
         return strdata
     
-    def transform(self,strdata,columnlist = None):
+    def transform(self,strdata):
+        
         codedata = copy.copy(strdata)
         if self.method == 'order':
-            if columnlist is None:
-                columnlist = self.labelcolumns
-            for col in columnlist:
-                for key in self.map_dict[col]:
-                    codedata[[col]] = codedata[[col]].replace(key,self.map_dict[col][key])
+            for key in self.encoding.keys():
+                codedata[[key]] = self.encoding[key].transform(codedata[[key]]).reshape(len(strdata),1)
         
         elif self.method == 'onehot':
-            res = []
-            if columnlist is None:
-                columnlist = self.labelcolumns
-            for col in columnlist:
-                temp = []
-                columns_stand =  self.map_dict[col]['col']
-                for key in self.map_dict[col].keys():
-                    if key != 'col':
-                        idx = strdata[strdata.loc[:,col] == key].index
-                        ndarray = np.array(list(self.map_dict[col][key])*len(idx)).reshape(len(idx),-1)
-                        temp.append(pd.DataFrame(ndarray,index = idx,columns = columns_stand))
-                res.append(pd.concat(temp))
-            res = pd.concat(res,axis = 1)
-            codedata = res.reindex(strdata.index)
+            for key in self.encoding.keys():
+                temp = self.encoding[key]['order'].transform(codedata[[key]])
+                trans_data = self.encoding[key]['Oht'].transform(temp.reshape(-1,1)).toarray()
+                trans_data = pd.DataFrame(trans_data,index = codedata.index)
+                codedata = codedata.drop(key,axis=1)
+                codedata = pd.concat([codedata,trans_data],axis=1)
+
         return codedata
 
 class Data_Change():
@@ -305,42 +280,50 @@ class Data_Change():
         self.method = method
         self.scaler = None
         self.data_col = None
+        self.is_place = True
         
-    def fit_transform(self,data,is_replace = True):
+    def fit(self,data,is_replace = True):
         print('-----开始进行因子变换:转换方法：{}-----'.format(self.method))
-
-            
+        self.is_place = is_replace
         if self.method == 'log':
             self.data_col = data.columns
             for col in self.data_col:
                 new_col = pd.DataFrame(np.log(data[[col]]),columns = ['ln_' + col],index = data.index)
             data = pd.concat([data,new_col],axis=1)
-            if is_replace:
+            if self.is_place:
+                data = data.drop(self.data_col,axis =1)
+        elif self.method == 'avgstd':
+            scaler = preprocessing.StandardScaler()
+            data = pd.DataFrame(scaler.fit_transform(data),
+                                index = data.index, columns = data.columns)
+            self.scaler = scaler
+            
+        elif self.method == 'minmax':
+            scaler = preprocessing.MinMaxScaler()
+            data = pd.DataFrame(scaler.fit_transform(data),
+                            index = data.index,columns = data.columns)
+            self.scaler = scaler
+                
+        
+    def transform(self,data):    
+        if self.method == 'log':
+            self.data_col = data.columns
+            for col in self.data_col:
+                new_col = pd.DataFrame(np.log(data[[col]]),columns = ['ln_' + col],index = data.index)
+            data = pd.concat([data,new_col],axis=1)
+            if self.is_replace:
                 data = data.drop(self.data_col,axis =1)
                 
         elif self.method == 'avgstd':
-            if self.scaler is None:
-                scaler = preprocessing.StandardScaler()
-                data = pd.DataFrame(scaler.fit_transform(data),
-                                    index = data.index, columns = data.columns)
-                self.scaler = scaler
-            else:
-                data = pd.DataFrame(self.scaler.fit_transform(data),
-                                    index = data.index, columns = data.columns)
+            data = pd.DataFrame(self.scaler.fit_transform(data),
+                                index = data.index, columns = data.columns)
                 
         elif self.method == 'minmax':
-            if self.scaler is None:
-                scaler = preprocessing.MinMaxScaler()
-                data = pd.DataFrame(scaler.fit_transform(data),
-                                index = data.index,columns = data.columns)
-                self.scaler = scaler
-            else:
-                data = pd.DataFrame(self.scaler.fit_transform(data),
-                                    index = data.index, columns = data.columns)
-            
+            data = pd.DataFrame(self.scaler.fit_transform(data),
+                                index = data.index, columns = data.columns)     
         return data
     
-    def change_back(self,data):
+    def inverse_transform(self,data):
         if self.method == 'log':
             data = pd.DataFrame(np.exp(data),columns = self.data_col)
         elif self.method == 'avgstd':
