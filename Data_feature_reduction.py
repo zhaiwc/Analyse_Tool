@@ -117,6 +117,13 @@ class Feature_Reduction():
             res = pd.DataFrame(np.dot(weight,trans_mat),columns = self.data_col,index = ['importance'])
             res = abs(res.T).sort_values('importance')
         return res.iloc[-Top_N:]
+    
+    def plot_score_scatter(self,data,label_col = None):
+        dr_data = self.dr_model.transform(data)
+        plot_data = dr_data.iloc[:,0:2]
+        plt = Data_plot.plot_scatter(plot_data,label_col = label_col)
+        plt.title('pca1 vs pca2 scatter')
+        plt.show()
         
     def plot_cum_std(self,data,n = 30):
         '''

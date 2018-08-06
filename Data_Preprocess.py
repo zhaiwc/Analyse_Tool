@@ -203,14 +203,17 @@ class Fillna():
             data = data.drop(self.drop_col,axis = 1)
         
         if self.label_col is None:
-            res = self.__fill_nan(data,self.mean_mat['Total'],self.median_mat['Total'])
+            res = self.fill_nan(data,self.mean_mat['Total'],self.median_mat['Total'])
         else:
             res = pd.DataFrame()
             for key,group in data.groupby(self.label_col):
                 group = self.fill_nan(group,self.mean_mat[key],self.median_mat[key])
                 res = pd.concat([res,group])
         return res
-        
+    
+    def predict(self,data):
+        return self.transform(data)
+    
 class Data_Encoding():
     def __init__(self,method):
         self.method = method
@@ -355,99 +358,37 @@ class Data_Change():
         return data
         
 
-
-
-#def data_change(data,method,columnlist = None ,is_drop = True,**kw):
-#    '''
-#    对每一列进行数据变换：
-#    1.对数变换
-#    2.差分变换
-#    3.交叉项变换
-#    4.二次项变换
-#    5.偏差量变换
-#    6.偏离量变换
-#    '''
-#    if columnlist is None:
-#        columnlist = data.columns
-#    else:
-#        pass
-#    
-#    print('-----开始进行因子变换:转换方法：{}-----'.format(method))
-#    orgin_col = len(data.columns)
-#    if method ==3:
-#        len_col = len(columnlist)
-#        if len_col >=2:
-#            for i in range(len_col):
-#                for j in range(len_col):
-#                    if i < j:
-#                        ths_factor = pd.DataFrame(np.array(data[columnlist[i]]) * np.array(data[columnlist[j]]),
-#                                                  columns = [str(columnlist[i]) + '*' + str(columnlist[j])],index = data.index)
-#                        data = pd.concat([data,ths_factor],axis=1)
-#        else:
-#            print('计算交互作用至少包含2个因子')
-#    else:
-#        for col in columnlist:
-#            if method == 1:
-#                new_col = pd.DataFrame(np.log(data[[col]]),columns = ['ln_' + col],index = data.index)
-#            elif method == 2:
-#                if 'para' in kw:
-#                    new_col = pd.DataFrame(data[[col]].diff(kw['para'][0]),columns = ['diff_' + col],index = data.index)
-#                else:
-#                    new_col = pd.DataFrame(data[[col]].diff(),columns =['diff_' + col],index = data.index)
-#            elif method == 4:
-#                new_col = pd.DataFrame(np.array(data[col]) *np.array(data[col]),columns=[col + '_2'],index = data.index)
-#
-#            data = pd.concat([data,new_col],axis=1)
-#    final_col = len(data.columns)
-#    print('原始列数：{} , 增加列数：{} , 最终列数： {} '.format(orgin_col,final_col - orgin_col,final_col))
-#    if is_drop:
-#        data = data.drop(columnlist,axis =1)
-#    
-#    return data
-
-def __check_outlier_one_col(x,method ='3sigma',muti = 3):
-    '''
-    一列异常数据检验，返回异常的index。
-    method = '3sigma': 计算上下3倍std
-    method = 'tukey' : Q1 - 1.5*(Q3-Q1) ,Q3 + 1.5*(Q3-Q1)
-    '''
-    x = x.replace(np.inf,np.nan)
-    if method == '3sigma':
-        upline = x.mean() + muti * x.std()
-        dnline = x.mean() - muti * x.std()
-    elif method == 'tukey':
-        upline = np.percentile(x,75)  + muti * (np.percentile(x,75) - np.percentile(x,25))
-        dnline = np.percentile(x,25)  - muti * (np.percentile(x,75) - np.percentile(x,25))
-    outlier_index = list(x[(x>upline)|(x<dnline)].dropna().index)    
-#    pct = len(x[(x>upline)|(x<dnline)])/len(x)
-    return outlier_index 
-
-def check_outlier(x, method = '3sigma',fill = 'nan',muti = 3):
-    '''
-    循环每一列，根据method判断该列异常的index,再根据填充方法进行相应的替换
-    fill: 'nan' 使用nan值进行替换，'mean'使用均值进行替换.
-    '''
-    print('-----异常值处理-----')
-    print('异常判断方法： {}，异常值处理方法： {}。'.format(method,fill))
-#    pct_tot = pd.DataFrame()
-    for col in x.columns:
-#        print(col)
-        x_col = x.loc[:,[col]]
-        if fill == 'nan':
-            outlier_index = __check_outlier_one_col(x_col,method = method,muti = muti)
-            x_col.loc[outlier_index,:] = np.nan
-        elif fill == 'mean':
-            outlier_index = __check_outlier_one_col(x_col,method = method,muti = muti)
-            x_col.loc[outlier_index,:] = x_col.mean()
-        x.loc[:,[col]] = x_col
+class Check_Outlier():
+    def __init__(self,method = '3sigma',muti = 3):
+        self.method = method
+        self.muti = 3
         
-#        pctdf = pd.DataFrame([pct,col],index = ['pct','col']).T
-#        pct_tot = pd.concat([pct_tot,pctdf])
-#    pct_tot.set_index('col')
-#    pct_tot = pct_tot.sort_values('pct',ascending ='False')
+        #上下限
+        self.upline = None
+        self.dnline = None
+        
+    def fit(self,x):
+        if self.method == '3sigma':
+            self.upline = x.mean() + self.muti * x.std()
+            self.dnline = x.mean() - self.muti * x.std()
+        elif self.method == 'tukey':
+            n25 = pd.DataFrame(np.percentile(x,25,axis=0),index = x.columns)
+            n75 = pd.DataFrame(np.percentile(x,75,axis=0),index = x.columns)
+            self.upline = n75 + self.muti * ( n75 - n25 )
+            self.dnline = n25 - self.muti * ( n75 - n25 )
+            
+        x[x>self.upline] = np.nan
+        x[x<self.dnline] = np.nan
+        
+        return x
     
-    return x
-    
+    def transform(self,x):
+        
+        x[x>self.upline] = np.nan
+        x[x<self.dnline] = np.nan
+        
+        return x
+        
 def split_datecol(data,thoeshold =10e12):
     '''
     根据阈值判断时间列。10e13: yyyymmddHHMMSS
@@ -486,20 +427,7 @@ def drop_constant_col(data,columnlist = None ,label_col = None):
     if len(drop_col):
         data = data.drop(drop_col,axis =1)
     return data,drop_col
-    
-
-
-#def data_balance(x,y,label_col = None,method ='random',rank_by = None ):
-#    if label_col is None:
-#        x_res,y_res = sample_balance(x,y,method =method,rank_by = rank_by )
-#    else:
-#        data = pd.concat([])
-##        for group in :
-#            
             
-            
-            
-
 def long2width(data,index,col,value):
     '''
     长表转宽表
@@ -512,4 +440,42 @@ def long2width(data,index,col,value):
     res = pd.merge(wid_tabel,data,on = index)
     return res
     
+
+#def __check_outlier_one_col(x,method ='3sigma',muti = 3):
+#    '''
+#    一列异常数据检验，返回异常的index。
+#    method = '3sigma': 计算上下3倍std
+#    method = 'tukey' : Q1 - 1.5*(Q3-Q1) ,Q3 + 1.5*(Q3-Q1)
+#    '''
+#    x = x.replace(np.inf,np.nan)
+#    if method == '3sigma':
+#        upline = x.mean() + muti * x.std()
+#        dnline = x.mean() - muti * x.std()
+#    elif method == 'tukey':
+#        upline = np.percentile(x,75)  + muti * (np.percentile(x,75) - np.percentile(x,25))
+#        dnline = np.percentile(x,25)  - muti * (np.percentile(x,75) - np.percentile(x,25))
+#    outlier_index = list(x[(x>upline)|(x<dnline)].dropna().index)    
+##    pct = len(x[(x>upline)|(x<dnline)])/len(x)
+#    return outlier_index 
+#
+#def check_outlier(x, method = '3sigma',fill = 'nan',muti = 3):
+#    '''
+#    循环每一列，根据method判断该列异常的index,再根据填充方法进行相应的替换
+#    fill: 'nan' 使用nan值进行替换，'mean'使用均值进行替换.
+#    '''
+#    print('-----异常值处理-----')
+#    print('异常判断方法： {}，异常值处理方法： {}。'.format(method,fill))
+##    pct_tot = pd.DataFrame()
+#    for col in x.columns:
+##        print(col)
+#        x_col = x.loc[:,[col]]
+#        if fill == 'nan':
+#            outlier_index = __check_outlier_one_col(x_col,method = method,muti = muti)
+#            x_col.loc[outlier_index,:] = np.nan
+#        elif fill == 'mean':
+#            outlier_index = __check_outlier_one_col(x_col,method = method,muti = muti)
+#            x_col.loc[outlier_index,:] = x_col.mean()
+#        x.loc[:,[col]] = x_col
+#    
+#    return x
     
