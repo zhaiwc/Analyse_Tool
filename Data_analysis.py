@@ -8,7 +8,7 @@ import pandas as pd
 import numpy as np
 import pdb
 
-from Analysis_Tool.Data_Preprocess import __check_discrete
+from Analysis_Tool.Data_Preprocess import check_discrete
 from Analysis_Tool.helper import dcor,CausalCalculator,discrete,continuous
 from Analysis_Tool import Data_plot,Data_Preprocess,Data_model_building,Data_feature_reduction
 from sklearn.metrics.cluster import adjusted_rand_score

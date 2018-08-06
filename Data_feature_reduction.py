@@ -8,21 +8,26 @@ import pandas as pd
 import numpy as np
 import pdb
 
-from sklearn.ensemble import RandomForestRegressor,GradientBoostingRegressor
-from sklearn.ensemble import RandomForestClassifier,GradientBoostingClassifier
-from sklearn.decomposition import PCA,FactorAnalysis,KernelPCA
+import sklearn.ensemble as esb
+#from sklearn.ensemble import RandomForestRegressor,AdaBoostRegressor,GradientBoostingRegressor
+#from sklearn.ensemble import RandomForestClassifier,GradientBoostingClassifier
+from sklearn.decomposition import PCA,FactorAnalysis,KernelPCA,SparsePCA,TruncatedSVD,IncrementalPCA
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 from sklearn.model_selection import  GridSearchCV,cross_val_score
-from sklearn.metrics import make_scorer,mean_squared_error,roc_auc_score, accuracy_score
+from sklearn.feature_selection import SelectKBest,VarianceThreshold
+from sklearn.metrics import make_scorer,mean_squared_error,roc_auc_score, accuracy_score,mutual_info_score
 from sklearn import linear_model
+
 from xgboost import XGBRegressor,XGBClassifier
 from Analysis_Tool import Data_plot
 
-class Dim_Reduction():
+class Feature_Reduction():
     '''
     n_comp: N 前N大主成分（优先）
     cum_std ： 0.8 前N大主成分所解释的方差累计百分比（次优）
     '''
-    def __init__(self,n_comp = None , cum_std = 0.8):
+    def __init__(self, n_comp  ,method = 'PCA',  cum_std = 0.8):
+        self.method = method
         self.n_comp = n_comp
         self.cum_std = cum_std
         self.dr_model = None
@@ -33,15 +38,33 @@ class Dim_Reduction():
         训练数据
         '''
         #先以n_comp为基准，如不满足条件则
-        if self.n_comp is not None:
+        if self.method == 'pca':
             self.dr_model = PCA(n_components = self.n_comp)
             self.dr_model.fit(data)
             if self.dr_model.explained_variance_ratio_.cumsum()[-1] < self.cum_std:
                 self.dr_model = PCA(n_components = self.cum_std)
                 self.dr_model.fit(data)
-        else:
-            self.dr_model = PCA(n_components = self.cum_std)
+                
+        elif self.method == 'kpca':
+            self.dr_model = KernelPCA(n_components = self.n_comp,kernel="rbf")
             self.dr_model.fit(data)
+            
+        elif self.method == 'fa':
+            self.dr_model = FactorAnalysis(n_components = self.n_comp)
+            self.dr_model.fit(data)
+        
+        elif self.method == 'spca':
+            self.dr_model = SparsePCA(n_components = self.n_comp)
+            self.dr_model.fit(data)
+            
+        elif self.method == 'tsvd':
+            self.dr_model = TruncatedSVD(n_components = self.n_comp)
+            self.dr_model.fit(data)
+        
+        elif self.method == 'ipca':
+            self.dr_model = IncrementalPCA(n_components = self.n_comp)
+            self.dr_model.fit(data)
+            
         self.data_col = data.columns
         
     def transform(self,data):
@@ -49,9 +72,35 @@ class Dim_Reduction():
         对预测数据进行转换
         '''
         if self.dr_model is not None:
-            res = self.dr_model.transform(data)
-            pca_col = ['pca'+ str(i+1) for i in range(res.shape[1])]
-            res = pd.DataFrame(res,columns = pca_col)
+            if self.method == 'pca':
+                res = self.dr_model.transform(data)
+                col = ['pca'+ str(i+1) for i in range(res.shape[1])]
+                res = pd.DataFrame(res,columns = col)
+                
+            elif self.method == 'kpca':
+                res = self.dr_model.transform(data)
+                col = ['KPCA'+ str(i+1) for i in range(res.shape[1])]
+                res = pd.DataFrame(res,columns = col)
+            
+            elif self.method == 'fa':
+                res = self.dr_model.transform(data)
+                col = ['FA'+ str(i+1) for i in range(res.shape[1])]
+                res = pd.DataFrame(res,columns = col)
+                
+            elif self.method == 'spca':
+                res = self.dr_model.transform(data)
+                col = ['SPCA'+ str(i+1) for i in range(res.shape[1])]
+                res = pd.DataFrame(res,columns = col)
+            
+            elif self.method == 'tsvd':
+                res = self.dr_model.transform(data)
+                col = ['TSVD'+ str(i+1) for i in range(res.shape[1])]
+                res = pd.DataFrame(res,columns = col)
+                
+            elif self.method == 'ipca':
+                res = self.dr_model.transform(data)
+                col = ['ipca'+ str(i+1) for i in range(res.shape[1])]
+                res = pd.DataFrame(res,columns = col)
         else:
             print('dr_model is None')
             res = None
@@ -62,10 +111,11 @@ class Dim_Reduction():
         wight_comp:由其他模型计算得到的因子重要性
         根据wight_comp * transformmat 计算原始因子重要性
         '''
-        weight = np.array(wight_comp).reshape(1,-1)
-        trans_mat = self.dr_model.components_
-        res = pd.DataFrame(np.dot(weight,trans_mat),columns = self.data_col,index = ['importance'])
-        res = abs(res.T).sort_values('importance')
+        if self.method in ['pca','ipca']:
+            weight = np.array(wight_comp).reshape(1,-1)
+            trans_mat = self.dr_model.components_
+            res = pd.DataFrame(np.dot(weight,trans_mat),columns = self.data_col,index = ['importance'])
+            res = abs(res.T).sort_values('importance')
         return res.iloc[-Top_N:]
         
     def plot_cum_std(self,data,n = 30):
@@ -79,6 +129,205 @@ class Dim_Reduction():
 #        plt = Data_plot.plot_line(pd.DataFrame(np.ones(eplan_var_csum.shape)*0.8,columns=['base_line']))
         plt.title('cumsum explained_variance_ratio')
         plt.show()
+        
+class Filter_Selection():
+    def __init__(self,method,TopN = 10):
+        self.method = method
+        self.TopN = TopN
+        self.filter = None
+        self.choose_col = []
+        
+    def fit(self,x,y):
+        if self.method == 'std':
+            #标准差
+            std_x = np.std(x).sort_values()
+            self.choose_col = std_x.index[-self.TopN:]
+            
+        elif self.method == 'pearson':
+            #皮尔森相关系数
+            corr_x = abs(pd.concat([x,y],axis = 1).corr().iloc[:-1,-1]).sort_values()
+            self.choose_col = corr_x.index[-self.TopN:]
+            
+        elif self.method == 'mi':
+            #互信息
+            mi = []
+            for col in x.columns:
+                mi.append(mutual_info_score(x.loc[:,col],y))
+            mi = pd.DataFrame(mi,index = x.columns).sort_values()
+            self.choose_col = mi.index[-self.TopN:]
+        
+            
+    def transform(self,x):
+        
+        transform_x = x.loc[:,self.choose_col].iloc[:-1,-1]
+        return transform_x
+
+class Reg_Embedded_Selection():
+    def __init__(self,method,TopN = 10):
+        self.method = method
+        self.parameters = None
+        self.select_col = None
+        self.TopN = TopN
+        
+    def set_parameters(self,parameters = None):
+        if parameters is None: #用户不传参数，则使用默认参数
+            if self.method == 'ElasticNet':
+                self.parameters = {'alpha':[1,],'l1_ratio ':[0.5,]}
+                
+            elif self.method == 'rf':
+                self.parameters = {"max_depth": [5],
+                        "n_estimators": [200],}
+                
+            elif self.method == 'adaboost':
+                self.parameters = {'n_estimators':[200],
+                                   'learning_rate':[0.1],}
+                
+            elif self.method == 'gbm':
+                self.parameters = {"max_depth": [5],
+                                   "learning_rate": [0.1],
+                                   "n_estimators": [200],}
+                
+            elif self.method == 'xgb':
+                self.parameters = { "max_depth": [5],
+                                   "learning_rate": [0.1],
+                                   "n_estimators": [200],}
+        else:
+            self.parameters = parameters
+    
+    def fit(self,x,y):
+        
+        scoring = {"mse": make_scorer(mean_squared_error),}
+        
+        x = x.values
+        y = y.values.reshape(len(y),)
+        
+        if self.parameters is None:
+            self.set_parameters()
+            
+        if self.method == 'ElasticNet':
+            reg = GridSearchCV(linear_model.ElasticNet(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='mse')
+            reg.fit(x,y)
+            
+            coef = pd.DataFrame(reg.best_estimator_.coef_).sort_values()
+            self.select_col = coef.index[-self.TopN:]
+        
+        elif self.method == 'rf':
+            reg = GridSearchCV(esb.RandomForestRegressor(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='mse')
+            reg.fit(x,y)
+            
+            importances = reg.best_estimator_.feature_importances_
+            Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances']).sort_values('importances')
+            self.select_col = list(Rank.index[-self.Top_N:])
+        
+        elif self.method == 'adaBoost':
+            reg = GridSearchCV(esb.AdaBoostRegressor(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='mse')
+            reg.fit(x,y)
+            
+            importances = reg.best_estimator_.feature_importances_
+            Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances']).sort_values('importances')
+            self.select_col = list(Rank.index[-self.Top_N:])
+        
+        elif self.method == 'gbm':
+            reg = GridSearchCV(esb.GradientBoostingRegressor(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='mse')
+            reg.fit(x,y)
+            
+            importances = reg.best_estimator_.feature_importances_
+            Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances']).sort_values('importances')
+            self.select_col = list(Rank.index[-self.Top_N:])
+            
+        elif self.method == 'xgb':
+            reg = GridSearchCV(XGBRegressor(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='mse')
+            reg.fit(x,y)
+            
+            importances = reg.best_estimator_.feature_importances_
+            Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances']).sort_values('importances')
+            self.select_col = list(Rank.index[-self.Top_N:])
+            
+            
+    def transform(self,x):
+        transform_x = x.loc[:,self.choose_col].iloc[:-1,-1]
+        return transform_x
+    
+class Cls_Embedded_Selection():
+    def __init__(self,method,TopN = 10):
+        self.method = method
+        self.parameters = None
+        self.select_col = None
+        self.TopN = TopN
+        
+    def set_parameters(self,parameters = None):
+        if parameters is None: #用户不传参数，则使用默认参数
+            if self.method == 'logistic':
+                self.parameters = {'penalty':['l1',],'C ':[1]}
+                
+            elif self.method == 'rf':
+                self.parameters = {"max_depth": [5],
+                        "n_estimators": [200],}
+                
+            elif self.method == 'adaboost':
+                self.parameters = {'n_estimators':[200],
+                                   'learning_rate':[0.1],}
+                
+            elif self.method == 'gbm':
+                self.parameters = {"max_depth": [5],
+                                   "learning_rate": [0.1],
+                                   "n_estimators": [200],}
+                
+            elif self.method == 'xgb':
+                self.parameters = { "max_depth": [5],
+                                   "learning_rate": [0.1],
+                                   "n_estimators": [200],}
+        else:
+            self.parameters = parameters
+    
+    def fit(self,x,y):
+        scoring = {"roc": make_scorer(roc_auc_score),}
+        
+        x = x.values
+        y = y.values.reshape(len(y),)
+        
+        if self.method == 'logistic':
+            clf = GridSearchCV(linear_model.LogisticRegression(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='roc')
+            clf.fit(x,y)
+            
+            coef = pd.DataFrame(clf.best_estimator_.coef_).sort_values()
+            self.select_col = coef.index[-self.TopN:]
+            
+        elif self.method == 'rf':
+            clf = GridSearchCV(esb.RandomForestClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='roc')
+            clf.fit(x,y)
+            
+            importances = clf.best_estimator_.feature_importances_
+            Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances']).sort_values('importances')
+            self.select_col = list(Rank.index[-self.Top_N:])
+        
+        elif self.method == 'adaboost':
+            clf = GridSearchCV(esb.AdaBoostClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='roc')
+            clf.fit(x,y)
+            
+            importances = clf.best_estimator_.feature_importances_
+            Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances']).sort_values('importances')
+            self.select_col = list(Rank.index[-self.Top_N:])
+            
+        elif self.method == 'gbm':
+            clf = GridSearchCV(esb.GradientBoostingClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='roc')
+            clf.fit(x,y)
+            
+            importances = clf.best_estimator_.feature_importances_
+            Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances']).sort_values('importances')
+            self.select_col = list(Rank.index[-self.Top_N:])
+            
+        elif self.method == 'xgb':
+            clf = GridSearchCV(XGBRegressor(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='roc')
+            clf.fit(x,y)
+            
+            importances = clf.best_estimator_.feature_importances_
+            Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances']).sort_values('importances')
+            self.select_col = list(Rank.index[-self.Top_N:])
+            
+    def transform(self,x):
+        transform_x = x.loc[:,self.choose_col].iloc[:-1,-1]
+        return transform_x
         
 def dim_reduction(data,method = 'pca',n_comp = None):
     if method =='pca':
@@ -135,152 +384,3 @@ def dim_reduction(data,method = 'pca',n_comp = None):
             
     return res,dr
 
-def reg_feature_selection(x,y,method ='rf',Top_N = 20,**kw):
-    '''
-    回归特征选择
-    1.lasso
-    2.随机森林特征
-    3.GBM
-    4.XGBOOST
-    '''
-    print('开始对回归因子进行特征选择,使用的方法：{}...'.format(method))
-    if method == 'lasso':
-        if 'alpha' in kw:
-            alpha = kw['alpha']
-            reg = linear_model.Lasso(alpha = alpha)
-            reg.fit(x,y)
-            
-            coef = pd.DataFrame(reg.coef_)
-            select_col = coef[coef!=0].dropna()
-        else:
-            parameters = {
-                "alpha": [0.01,0.1,1,10,100],
-            }
-            scoring = {
-            "mse": make_scorer(mean_squared_error),
-            }
-            reg = GridSearchCV(linear_model.Lasso(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
-            reg.fit(x,y)
-            
-            coef = pd.DataFrame(reg.best_estimator_.coef_)
-            select_col = coef[coef!=0].dropna()
-            
-    elif method =='rf':
-        parameters = {
-                        "max_depth": [3, 5, 7],
-                        "n_estimators": [50, 100, 200],
-                    }
-        scoring = {
-            "mse": make_scorer(mean_squared_error),
-            }
-#        pdb.set_trace()
-        reg = GridSearchCV(RandomForestRegressor(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
-        reg.fit(np.array(x),np.array(y).reshape(len(y),))
-        
-        importances = reg.best_estimator_.feature_importances_
-        Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances'])
-        Rank = Rank.sort_values('importances')
-        select_col = list(Rank.iloc[-Top_N:,:].index)
-    
-    elif method == 'gbm':
-        parameters = {
-                        "max_depth": [3, 5, 7],
-                        "learning_rate": [0.01, 0.1],
-                        "n_estimators": [50, 100, 200],
-                    }
-        scoring = {
-            "mse": make_scorer(mean_squared_error),
-            }
-        reg = GridSearchCV(GradientBoostingRegressor(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
-        reg.fit(np.array(x),np.array(y).reshape(len(y),))
-    
-        importances = reg.best_estimator_.feature_importances_
-        Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances'])
-        Rank = Rank.sort_values('importances')
-        select_col = list(Rank.iloc[-Top_N:,:].index)
-        
-    elif method =='xgb':
-        parameters = {
-                        "max_depth": [3, 5, 7],
-                        "learning_rate": [0.01, 0.1],
-                        "n_estimators": [50, 100, 200],
-                    }
-        scoring = {
-            "mse": make_scorer(mean_squared_error),
-            }
-        reg = GridSearchCV(XGBRegressor(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
-        reg.fit(np.array(x),np.array(y).reshape(len(y),))
-#        pdb.set_trace()
-#        importances = pd.Series(reg.best_estimator_.booster().get_fscore()).sort_values(ascending =False)
-        importances = pd.Series(reg.best_estimator_.booster().get_score(importance_type='weight')).sort_values(ascending =False)
-#        indices = np.argsort(importances)[::-1]
-        select_col = list(importances.index)
-    return select_col
-
-def clf_feature_selection(x,y,method ='rf',Top_N = 20,**kw):
-    '''
-    回归特征选择
-    1.随机森林特征
-    2.GBM
-    3.XGBOOST
-    '''
-    print('开始对分类因子进行特征选择,使用的方法：{}...'.format(method))
-    if method =='rf':
-        parameters = {
-                        "max_depth": [3, 5, 7],
-                        "n_estimators": [50, 100, 200],
-                    }
-        scoring = {
-            "AUC": make_scorer(roc_auc_score),
-            "Accuracy": make_scorer(accuracy_score)
-            }
-        clf = GridSearchCV(RandomForestClassifier(),param_grid=parameters,cv=5,scoring=scoring,refit ='AUC')
-        clf.fit(np.array(x),np.array(y).reshape(len(y),))
-        
-        importances = clf.best_estimator_.feature_importances_
-        Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances'])
-        Rank = Rank.sort_values('importances')
-        select_col = list(Rank.iloc[-Top_N:,:].index)
-        plt = Data_plot.plot_barh(Rank.iloc[-Top_N:,:])
-        plt.title('Feature importances')
-        plt.ylabel('Feature')
-        plt.xlabel('importances')
-    
-    elif method == 'gbm':
-        parameters = {
-                        "max_depth": [3, 5, 7],
-                        "learning_rate": [0.01, 0.1],
-                        "n_estimators": [50, 100, 200],
-                    }
-        scoring = {
-            "AUC": make_scorer(roc_auc_score),
-            "Accuracy": make_scorer(accuracy_score)
-            }
-        clf = GridSearchCV(GradientBoostingClassifier(),param_grid=parameters,cv=5,scoring=scoring,refit ='AUC')
-        clf.fit(np.array(x),np.array(y).reshape(len(y),))
-    
-        importances = clf.best_estimator_.feature_importances_
-        Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances'])
-        Rank = Rank.sort_values('importances')
-        select_col = list(Rank.iloc[-Top_N:,:].index)
-        
-    elif method =='xgb':
-        parameters = {
-                        "max_depth": [3, 5, 7],
-                        "learning_rate": [0.01, 0.1],
-                        "n_estimators": [50, 100, 200],
-                    }
-        scoring = {
-            "AUC": make_scorer(roc_auc_score),
-            "Accuracy": make_scorer(accuracy_score)
-            }
-        clf = GridSearchCV(XGBClassifier(),param_grid=parameters,cv=5,scoring=scoring,refit ='AUC')
-        clf.fit(np.array(x),np.array(y).reshape(len(y),))
-        
-        importances = clf.best_estimator_.feature_importances_
-        Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances'])
-        Rank = Rank.sort_values('importances')
-        select_col = list(Rank.iloc[-Top_N:,:].index)
-        
-    return select_col
-        

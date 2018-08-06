@@ -5,18 +5,17 @@ Created on Fri Mar 30 11:21:11 2018
 @author: zhaiweichen
 """
 from Analysis_Tool import Data_plot,Data_Preprocess,Data_analysis,Data_feature_reduction
-from sklearn import linear_model,kernel_ridge,tree,svm
-from sklearn.svm import SVR
-from sklearn.neighbors import KNeighborsClassifier
+from sklearn import linear_model,tree,svm
+from sklearn.cross_decomposition import PLSRegression
+from sklearn.neighbors import KNeighborsClassifier,KNeighborsRegressor
 from sklearn.model_selection import  GridSearchCV,train_test_split
-from sklearn.metrics import make_scorer,mean_squared_error,r2_score,roc_auc_score,accuracy_score,v_measure_score
+from sklearn.metrics import make_scorer,mean_squared_error,r2_score,roc_auc_score,accuracy_score
 from sklearn.cluster import KMeans,DBSCAN,AgglomerativeClustering
-from sklearn.ensemble import RandomForestClassifier,GradientBoostingClassifier
-from sklearn.ensemble import RandomForestRegressor,GradientBoostingRegressor
 from xgboost import XGBRegressor,XGBClassifier
 from collections import Counter,defaultdict
 from mlxtend.regressor import StackingRegressor
 from mlxtend.classifier import StackingClassifier
+import sklearn.ensemble as esb
 import pdb
 import copy
 import pandas as pd
@@ -59,10 +58,6 @@ def reg_sample_balance(x,y,benchmark = 'min',Multiple = 3,boostrap = False):
             x_res = pd.concat([x_res,x_new])
             y_res = pd.concat([y_res,y_new])
             
-            #统计结果y的count()
-            #cnt_res = Counter(y_res.iloc[:,0])
-            #print('样本均衡后分类信息：',cnt_res)
-            
     elif benchmark == 'max': 
         #计算最大的类和类的个数（下采样）
         max_num = max(cnt.values())
@@ -78,9 +73,6 @@ def reg_sample_balance(x,y,benchmark = 'min',Multiple = 3,boostrap = False):
             x_res = pd.concat([x_res,x_new])
             y_res = pd.concat([y_res,y_new])
             
-            #统计结果y的count()
-            #cnt_res = Counter(y_res.iloc[:,0])
-            #print('样本均衡后分类信息：',cnt_res)
     elif benchmark == 'all':
         #对全部样本进行采样，只能进行重采样
         idx = y.dropna().sample(len(y),replace=True).index
@@ -110,12 +102,67 @@ class reg_model():
                     self.parameters = None
                 elif self.method == 'ridge':
                     self.parameters = {'alpha':[0.01,0.1,1,10,100]}
-                    
+                elif self.method == 'lasso':
+                    self.parameters = {'alpha':[0.01,0.1,1,10,100]}
+                elif self.method == 'ElasticNet':
+                    self.parameters = {"alpha": [0.1,1,10],
+                                       "l1_ratio":[.1, .5,.9]}
+                elif self.method == 'pls':
+                    self.parameters = {'n_components':[3,5,7]}
+                elif self.method == 'svr':
+                    self.parameters = {"C": [0.1,1,10,100],
+                                       "epsilon": [10,1,0.1,0.01]}
+                elif self.method == 'knn':
+                    self.parameters ={'n_neighbors':[3,5,7]}
+                elif self.method == 'dt':
+                    self.parameters ={'max_depth' :[3,5,7]}
+                elif self.method == 'rf':
+                    self.parameters ={"max_depth": [3, 5, 7],
+                                      "n_estimators": [300,500,1000],}
+                elif self.method == 'adaBoost':
+                    self.parameters ={ "learning_rate": [0.01, 0.1],
+                                      "n_estimators": [500,1000],}
+                elif self.method == 'gbm':
+                    self.parameters ={"max_depth": [3, 5],
+                                      "learning_rate": [0.01, 0.1],
+                                      "n_estimators": [500,1000],}
+                elif self.method == 'xgb':
+                    self.parameters ={"max_depth": [3, 5],
+                                      "learning_rate": [0.01, 0.1],
+                                      "n_estimators": [500,1000],}
             else:
                 if self.method == 'linear':
                     self.parameters = None
                 elif self.method == 'ridge':
                     self.parameters = {'alpha':[1]}
+                elif self.method == 'lasso':
+                    self.parameters = {'alpha':[1]}
+                elif self.method == 'ElasticNet':
+                    self.parameters = {"alpha": [1],
+                                       "l1_ratio":[0.5]}
+                elif self.method == 'pls':
+                    self.parameters = {'n_components':[5]}
+                elif self.method == 'svr':
+                    self.parameters = {"C": [1],
+                                       "epsilon": [0.1]}
+                elif self.method == 'knn':
+                    self.parameters ={'n_neighbors':[5]}
+                elif self.method == 'dt':
+                    self.parameters ={'max_depth' :[5]}
+                elif self.method == 'rf':
+                    self.parameters ={"max_depth": [5],
+                                      "n_estimators": [500],}
+                elif self.method == 'adaBoost':
+                    self.parameters ={ "learning_rate": [0.1],
+                                      "n_estimators": [500],}
+                elif self.method == 'gbm':
+                    self.parameters ={"max_depth": [5],
+                                      "learning_rate": [0.1],
+                                      "n_estimators": [500],}
+                elif self.method == 'xgb':
+                    self.parameters ={"max_depth": [5],
+                                      "learning_rate": [0.1],
+                                      "n_estimators": [500],}
                     
         else:#用户传参数，则以用户参数为准
             self.parameters = parameters
@@ -130,13 +177,53 @@ class reg_model():
         
         scoring = {"mse": make_scorer(mean_squared_error),}
         
+        self.set_parameters
         if self.method == 'linear':
             self.reg_model = linear_model.LinearRegression()     
             self.reg_model.fit(x_train,y_train)
             
-        elif self.method == 'ridge':
-            
+        elif self.method == 'ridge':   
             self.reg_model = GridSearchCV(linear_model.Ridge(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='mse')
+            self.reg_model.fit(x_train,y_train)
+            
+        elif self.method == 'lasso':
+            self.reg_model = GridSearchCV(linear_model.Lasso(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='mse')
+            self.reg_model.fit(x_train,y_train)
+            
+        elif self.method == 'ElasticNet':
+            self.reg_model = GridSearchCV(linear_model.ElasticNet(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='mse')
+            self.reg_model.fit(x_train,y_train)
+        
+        elif self.method == 'pls':
+            self.reg_model = GridSearchCV(PLSRegression(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='mse')
+            self.reg_model.fit(x_train,y_train)
+        
+        elif self.method == 'svr':
+            self.reg_model = GridSearchCV(svm.SVR(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='mse')
+            self.reg_model.fit(x_train,y_train)
+            
+        elif self.method == 'knn':
+            self.reg_model = GridSearchCV(KNeighborsRegressor(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='mse')
+            self.reg_model.fit(x_train,y_train)
+        
+        elif self.method == 'dt':
+            self.reg_model = GridSearchCV(tree.DecisionTreeRegressor(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='mse')
+            self.reg_model.fit(x_train,y_train)
+            
+        elif self.method == 'rf':
+            self.reg_model = GridSearchCV(esb.RandomForestRegressor(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='mse')
+            self.reg_model.fit(x_train,y_train)
+            
+        elif self.method == 'adaBoost':
+            self.reg_model = GridSearchCV(esb.AdaBoostRegressor(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='mse')
+            self.reg_model.fit(x_train,y_train)
+            
+        elif self.method == 'gbm':
+            self.reg_model = GridSearchCV(esb.GradientBoostingRegressor(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='mse')
+            self.reg_model.fit(x_train,y_train)
+        
+        elif self.method == 'xgb': 
+            self.reg_model = GridSearchCV(XGBRegressor(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='mse')
             self.reg_model.fit(x_train,y_train)
             
     def predict(self,x):
@@ -149,8 +236,11 @@ class reg_model():
         col_name = 'variable importance'
         if self.method in ['linear'] :
             var_importance = pd.DataFrame(abs(self.reg_model.coef_),index = [col_name] ,columns = self.factor_name)
-        elif self.method in ['ridge','lasso',''] :
+        elif self.method in ['ridge','lasso','ElasticNet']:
             var_importance = pd.DataFrame(abs(self.reg_model.best_estimator_.coef_),index = [col_name] ,columns = self.factor_name)
+        elif self.method in ['rf','adaBoost','gbm','xgb']:
+#            var_importance = None
+            pass
         res = var_importance.T.sort_values(col_name)
         #对因子重要性进行归一化。
         Dchange = Data_Preprocess.Data_Change('minmax')
@@ -512,16 +602,58 @@ class cls_model():
         #设置模型参数:如果需要调参，则自定义的是多组参数调参范围，如果不需要调参，则自定义一组参数即可
         if parameters is None: #用户不传参数，则使用默认参数
             if self.isGridSearch == True:
-                if self.method == 'knn':
-                    self.parameters = {
-                        "n_neighbors": [3,4,5,6,7],
-                         "weights":['uniform','distance'],
-                         'algorithm':['auto','ball_tree','kd_tree','brute']
-                         }
+                if self.method == 'logistic':
+                    self.method == {'penalty':['l1','l2'],
+                                    'C':[0.1,1,10]}
+                elif self.method == 'knn':
+                    self.parameters = {"n_neighbors": [3,4,5,6,7],
+                                       "weights":['uniform','distance'],
+                                       'algorithm':['auto','ball_tree','kd_tree','brute']
+                                       }
+                elif self.method == 'svm':
+                    self.parameters = {"C": [0.1,1,10,100],
+                                       "epsilon": [10,1,0.1,0.01]}
+                elif self.method == 'dt':
+                    self.parameters ={'max_depth' :[3,5,7]}
+                elif self.method == 'rf':
+                    self.parameters ={"max_depth": [3, 5, 7],
+                                      "n_estimators": [300,500,1000],}
+                elif self.method == 'adaBoost':
+                    self.parameters ={ "learning_rate": [0.01, 0.1],
+                                      "n_estimators": [500,1000],}
+                elif self.method == 'gbm':
+                    self.parameters ={"max_depth": [3, 5],
+                                      "learning_rate": [0.01, 0.1],
+                                      "n_estimators": [500,1000],}
+                elif self.method == 'xgb':
+                    self.parameters ={"max_depth": [3, 5],
+                                      "learning_rate": [0.01, 0.1],
+                                      "n_estimators": [500,1000],}
             else:
-                self.parameters = {
-                        "n_neighbors": [5],
-                        }
+                if self.method == 'logistic':
+                    self.method == {'penalty':['l2'],
+                                    'C':[1]}
+                elif self.method == 'knn':
+                    self.parameters = {"n_neighbors": [5],}
+                elif self.method == 'svm':
+                    self.parameters = {"C": [1],
+                                       "epsilon": [0.1]}
+                elif self.method == 'dt':
+                    self.parameters ={'max_depth' :[5]}
+                elif self.method == 'rf':
+                    self.parameters ={"max_depth": [5],
+                                      "n_estimators": [500],}
+                elif self.method == 'adaBoost':
+                    self.parameters ={ "learning_rate": [0.1],
+                                      "n_estimators": [500],}
+                elif self.method == 'gbm':
+                    self.parameters ={"max_depth": [5],
+                                      "learning_rate": [0.1],
+                                      "n_estimators": [500],}
+                elif self.method == 'xgb':
+                    self.parameters ={"max_depth": [5],
+                                      "learning_rate": [0.1],
+                                      "n_estimators": [500],}
                     
         else:#用户传参数，则以用户参数为准
             self.parameters = parameters
@@ -542,6 +674,30 @@ class cls_model():
         elif self.method == 'knn':
             self.cls_model = GridSearchCV(KNeighborsClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='roc')
             self.cls_model.fit(x_train,y_train)
+        
+        elif self.method == 'svm':
+            self.cls_model = GridSearchCV(svm.SVC(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='roc')
+            self.cls_model.fit(x_train,y_train)
+        elif self.method == 'dt':
+            self.reg_model = GridSearchCV(tree.DecisionTreeClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='roc')
+            self.reg_model.fit(x_train,y_train)
+            
+        elif self.method == 'rf':
+            self.reg_model = GridSearchCV(esb.RandomForestClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='roc')
+            self.reg_model.fit(x_train,y_train)
+            
+        elif self.method == 'adaBoost':
+            self.reg_model = GridSearchCV(esb.AdaBoostClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='roc')
+            self.reg_model.fit(x_train,y_train)
+            
+        elif self.method == 'gbm':
+            self.reg_model = GridSearchCV(esb.GradientBoostingClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='roc')
+            self.reg_model.fit(x_train,y_train)
+        
+        elif self.method == 'xgb': 
+            self.reg_model = GridSearchCV(XGBClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='roc')
+            self.reg_model.fit(x_train,y_train)
+            
     
     def predict(self,x):
         #模型预测
@@ -773,22 +929,6 @@ class cls_model_stack_muti():
             res = pd.concat(res,axis = 1).mean(axis = 1)
         return res
     
-#        res = []
-#        for model_name in self.listModelName:
-#            sub_model_res = []
-#            for sub_model in self.train_model[model_name]:
-#                sub_model_res.append(sub_model.get_vip(isplot = False))
-#            #子模型结果融合
-#            sub_model_res = pd.concat(sub_model_res,axis = 1).mean(axis = 1)
-#            res.append(sub_model_res)
-#        #不同模型结果融合
-#        if self.stack_method == 'avg':
-#            res = pd.concat(res,axis = 1).mean(axis = 1)
-#        elif self.stack_method == 'weight':
-#            res = pd.concat(res,axis = 1).values
-#            weight = np.array(self.roc_list).reshape(len(res),1)
-#            res = np.dot(res,weight)
-#        return res.values
     
 def cls_scors(cls,train_x,train_y,valid_x,valid_y,label = None):
     '''
@@ -834,329 +974,6 @@ def clu_model(x,method = 'kmeans',parameters = None):
         
     return clu
 
-#def reg_model(x,y,method = 'linear',parameters = None):
-##    print('-----开始构建回归模型，方法：{}-----'.format(method))
-#    if method  == 'linear':
-#        reg = linear_model.LinearRegression()     
-#        reg.fit(x,y)
-#        parameters = None
-#        
-#    elif method == 'ridge':
-#        parameters = {
-#                "alpha": [0.01,0.1,1,10,100],
-#                    }
-#        scoring = {
-#                "mse": make_scorer(mean_squared_error),
-#                }
-#        reg = GridSearchCV(linear_model.Ridge(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
-#        reg.fit(np.array(x),np.array(y).reshape(len(y),))
-#        
-#    elif method == 'lasso':
-#        parameters = {
-#                "alpha": [0.01,0.1,1,10,100],
-#                    }
-#        scoring = {
-#                "mse": make_scorer(mean_squared_error),
-#                }
-#        reg = GridSearchCV(linear_model.Lasso(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
-#        reg.fit(np.array(x),np.array(y).reshape(len(y),))
-#        parameters = reg.best_params_
-#        
-#    elif  method == 'elasticnet':
-#        parameters = {
-#                "alpha": [0.1,1,10],
-#                "l1_ratio":[.1, .5,.9]
-#                    }
-#        scoring = {
-#                "mse": make_scorer(mean_squared_error),
-#                }
-#        reg = GridSearchCV(linear_model.ElasticNet(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
-#        reg.fit(np.array(x),np.array(y).reshape(len(y),))
-#        parameters = reg.best_params_
-#        
-#    elif method == 'kernelridge':
-#        parameters = {
-#                "alpha": [0.01,0.1,1,10,100],
-#                "gamma":[3,5,7]
-#                    }
-#        scoring = {
-#                "mse": make_scorer(mean_squared_error),
-#                }
-#
-#        reg = GridSearchCV(kernel_ridge.KernelRidge(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
-#        reg.fit(np.array(x),np.array(y).reshape(len(y),))
-#        
-#        parameters = reg.best_params_
-#    
-#    elif method == 'svr':
-#        if parameters is not None:
-#            for key in parameters.keys():
-#                if type(parameters[key]) is list:
-#                    pass
-#                else:
-#                    parameters[key] = [parameters[key]]
-#        else:
-#            parameters = {
-#                            "C": [10,100,1000,10000],
-#                            "epsilon": [10,1,0.1,0.01],
-#
-#                        }
-#            scoring = {
-#                "mse": make_scorer(mean_squared_error),
-#                }
-#        reg = GridSearchCV(SVR(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
-#        reg.fit(np.array(x),np.array(y).reshape(len(y),))
-#
-#        parameters = reg.best_params_
-#        
-#    elif method == 'rf':
-#        if parameters is not None:
-#            for key in parameters.keys():
-#                if type(parameters[key]) is list:
-#                    pass
-#                else:
-#                    parameters[key] = [parameters[key]]
-#        else:
-#            parameters = {
-#                            "max_depth": [3, 5, 7],
-#                            "n_estimators": [300,500,1000],
-#                        }
-#        scoring = {
-#                "mse": make_scorer(mean_squared_error),
-#                }
-#        reg = GridSearchCV(RandomForestRegressor(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
-#        reg.fit(np.array(x),np.array(y).reshape(len(y),))
-#        
-#        parameters = reg.best_params_
-#    
-#    elif method == 'gbm':
-#        if parameters is not None:
-#            for key in parameters.keys():
-#                if type(parameters[key]) is list:
-#                    pass
-#                else:
-#                    parameters[key] = [parameters[key]]
-#        else:
-#            parameters = {
-#                            "max_depth": [3, 5],
-#                            #"learning_rate": [0.01, 0.1],
-#                            "n_estimators": [500,1000],
-#                        }
-#        scoring = {
-#                "mse": make_scorer(mean_squared_error),
-#                }
-#        reg = GridSearchCV(GradientBoostingRegressor(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
-#        reg.fit(np.array(x),np.array(y).reshape(len(y),))
-#        
-#        parameters = reg.best_params_
-#    
-#    elif method =='xgb':
-#        if parameters is not None:
-#            for key in parameters.keys():
-#                if type(parameters[key]) is list:
-#                    pass
-#                else:
-#                    parameters[key] = [parameters[key]]
-#        else:
-#            parameters = {
-#                            "max_depth": [3, 5],
-#                            "learning_rate": [0.01, 0.1],
-#                            "n_estimators": [500,1000],
-#                        }
-#        scoring = {
-#                "mse": make_scorer(mean_squared_error),
-#                }
-#        reg = GridSearchCV(XGBRegressor(),param_grid=parameters,cv=5,scoring=scoring,refit ='mse')
-#        reg.fit(np.array(x),np.array(y).reshape(len(y),).astype(float))
-#        
-#        parameters = reg.best_params_
-#    return reg,parameters
-
-#def cls_model(x,y,method = 'logistic',parameters = None,Top_N = 20):
-#    
-#    if method  == 'logistic':
-#        cls = linear_model.LogisticRegression()
-#        cls.fit(np.array(x),np.array(y).reshape(len(y),))
-#        
-#    elif method  == 'knn':
-#        if parameters is not None:
-#            for key in parameters.keys():
-#                if type(parameters[key]) is list:
-#                    pass
-#                else:
-#                    parameters[key] = [parameters[key]]
-#        else:
-#            parameters = {
-#                    "n_neighbors": [3,4,5,6,7],
-#                    "weights":['uniform','distance'],
-#                    'algorithm':['auto','ball_tree','kd_tree','brute']
-#                        }
-#        scoring = {
-#                "AUC": make_scorer(roc_auc_score),
-#                "Accuracy": make_scorer(accuracy_score)
-#                }
-#        cls = GridSearchCV(KNeighborsClassifier(),param_grid=parameters,cv=5,scoring=scoring,refit ='Accuracy')
-#        cls.fit(np.array(x),np.array(y).reshape(len(y),))
-#        
-#    elif method == 'dt':
-#        if parameters is not None:
-#            for key in parameters.keys():
-#                if type(parameters[key]) is list:
-#                    pass
-#                else:
-#                    parameters[key] = [parameters[key]]
-#        else:
-#            parameters = {
-#                    "criterion": ['gini','entropy'],
-#                    "max_depth":[2,3,4,5],
-#                    'max_features':['auto','log2',None]
-#                        }
-#        scoring = {
-#                "AUC": make_scorer(roc_auc_score),
-#                "Accuracy": make_scorer(accuracy_score)
-#                }
-#        cls = GridSearchCV(tree.DecisionTreeClassifier(),param_grid=parameters,cv=5,scoring=scoring,refit ='Accuracy')
-#        cls.fit(np.array(x),np.array(y).reshape(len(y),))
-#        
-#    elif method == 'svm':
-#        if parameters is not None:
-#            for key in parameters.keys():
-#                if type(parameters[key]) is list:
-#                    pass
-#                else:
-#                    parameters[key] = [parameters[key]]
-#        else:
-#            parameters = {
-#                    "C" : [0.1,1,10],
-#                    "kernel" : ['linear','rbf','sigmoid'],
-#                    "degree" : [2,3,4],
-#                        }
-#        scoring = {
-#                "AUC": make_scorer(roc_auc_score),
-#                "Accuracy": make_scorer(accuracy_score)
-#                }
-#        cls = GridSearchCV(svm.SVC(),param_grid=parameters,cv=5,scoring=scoring,refit ='Accuracy')
-#        cls.fit(np.array(x),np.array(y).reshape(len(y),))
-#        
-#    elif method == 'rf':
-#        if parameters is not None:
-#            for key in parameters.keys():
-#                if type(parameters[key]) is list:
-#                    pass
-#                else:
-#                    parameters[key] = [parameters[key]]
-#        else:
-#            parameters = {
-#                            "max_depth": [3, 5, 7],
-#                            "n_estimators": [300,500,1000],
-#                        }
-#        scoring = {
-#            "AUC": make_scorer(roc_auc_score),
-#            "Accuracy": make_scorer(accuracy_score)
-#            }
-#        cls = GridSearchCV(RandomForestClassifier(),param_grid=parameters,cv=10,scoring=scoring,refit ='AUC')
-#        cls.fit(np.array(x),np.array(y).reshape(len(y),))
-#        
-#        importances = cls.best_estimator_.feature_importances_
-#        Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances'])
-#        Rank = Rank.sort_values('importances')
-#        key_feature = Rank.iloc[-Top_N:,:]
-#        
-#    elif method == 'gbm':
-#        if parameters is not None:
-#            for key in parameters.keys():
-#                if type(parameters[key]) is list:
-#                    pass
-#                else:
-#                    parameters[key] = [parameters[key]]
-#        else:
-#            parameters = {
-#                            "max_depth": [3, 5],
-#                            "learning_rate": [0.01, 0.1],
-#                            "n_estimators": [500,1000],
-#                        }
-#        scoring = {
-#            "AUC": make_scorer(roc_auc_score),
-#            "Accuracy": make_scorer(accuracy_score)
-#            }
-#        cls = GridSearchCV(GradientBoostingClassifier(),param_grid=parameters,cv=10,scoring=scoring,refit ='AUC')
-#        cls.fit(np.array(x),np.array(y).reshape(len(y),))
-#        importances = cls.best_estimator_.feature_importances_
-#        Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances'])
-#        Rank = Rank.sort_values('importances')
-#        key_feature = Rank.iloc[-Top_N:,:]
-#        
-#    elif method =='xgb':
-#        if parameters is not None:
-#            for key in parameters.keys():
-#                if type(parameters[key]) is list:
-#                    pass
-#                else:
-#                    parameters[key] = [parameters[key]]
-#        else:
-#            parameters = {
-#                            "max_depth": [3, 5, 7],
-#                            "learning_rate": [0.01, 0.1],
-#                            "n_estimators": [500,1000],
-#                        }
-#        scoring = {
-#            "AUC": make_scorer(roc_auc_score),
-#            "Accuracy": make_scorer(accuracy_score)
-#            }
-#        cls = GridSearchCV(XGBClassifier(),param_grid=parameters,cv=10,scoring=scoring,refit ='AUC')
-#        cls.fit(np.array(x),np.array(y).ravel())
-#        
-#        importances = cls.best_estimator_.feature_importances_
-#        Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances'])
-#        Rank = Rank.sort_values('importances')
-#        key_feature = Rank.iloc[-Top_N:,:]
-#        
-#    return cls,cls.best_params_,key_feature
-
-
-
-#class y_change():
-#    '''
-#    y值变换
-#    '''
-#    def __init__(self):
-#        self.method = None
-#        self.std = None
-#        self.mean = None
-#        self.max = None
-#        self.min = None
-#        
-#    def transform_y(self,y,method = 'log'):
-#        if method == 'log':
-#            self.method = 'log'
-#            y_new = Data_Preprocess.data_change(y,method = method)
-#        elif method == 'avgstd':
-#            self.method = 'avgstd'
-#            y_new,scaler = Data_Preprocess.data2avgstd(y)
-#            self.mean = scaler.mean_
-#            self.std = scaler.scale_            
-#        elif method == 'minmax':
-#            self.method = 'minmax'
-#            y_new,scaler = Data_Preprocess.data2avgstd(y)
-#            self.max = scaler.data_max_
-#            self.min = scaler.data_min_
-#        return y_new
-#
-#    def change_back_y(self,y):
-#        '''
-#        如对y进行转换，则需要将y转换回来
-#        '''
-#        if self.method == 'log':
-#            y = np.exp(y)
-#        elif self.method == 'avgstd':
-#            y = y * self.std + self.mean
-#        elif self.method == 'minmax':
-#            y = y *(self.max - self.min)  + self.min
-#        
-#        return y
-
-
-    
 
 
 class pca_clu_reg():
@@ -1222,113 +1039,7 @@ class pca_clu_reg():
         res = res.rename(columns = {res.columns[0]:'y_pred'})
         return np.array(res)
             
-            
 
-
-#class cls_model_stack():
-#    '''
-#    cls_list : 堆叠模型的类型
-#    n_cls: 堆叠模型的个数
-#    cls_ratio：各个模型所占比例
-#    '''
-#    def __init__(self,cls_list,Multiple = 4,n_cls = 10,cls_ratio = None ,boostrap = False,benchmark = 'min'):
-#        self.cls_list = cls_list
-#        self.Multiple = Multiple
-#        self.n_cls = n_cls
-#        self.modellist = []
-#        self.paralist = []
-#        self.keyfeatures = {}
-#        self.benchmark = benchmark
-#        self.boostrap = boostrap
-#        if cls_ratio is None:
-#        #默认平均分配
-#            self.cls_ratio = [1 / len(cls_list)] * len(cls_list)
-#        else:
-#            self.cls_ratio = cls_ratio
-#            
-#    def fit(self,train_x,train_y):
-#        '''
-#        拟合数据,计算单个模型关键因子
-#        '''
-#        print('-----开始进行模型stack训练,模型个数：{}-----'.format(self.n_cls))
-#        
-#        for i,cls in enumerate(self.cls_list):
-#            best_para = None
-#            for echo in range(int(self.n_cls * self.cls_ratio[i])):
-#                #进行样本均衡，有放回随机抽样
-#                betch_x,betch_y = Data_Preprocess.sample_balance(train_x,train_y,
-#                                  Multiple = self.Multiple,boostrap = self.boostrap,benchmark = self.benchmark)
-#                #对单一算法进行拟合
-#                cls_m,para,keyfeature = cls_model(betch_x,betch_y,method = cls ,parameters = best_para)
-#                best_para = para
-#                self.keyfeatures[str(cls) + str(echo)] = keyfeature
-#                print(best_para)
-#            self.modellist.append(cls_m)
-#            self.paralist.append(para)
-#                
-#    def predict(self,x):
-#        '''
-#        预测数据,根据输入的数据进行预测，最后通过结果投票得到最终结果。
-#        '''
-#        print('-----开始对stack模型进行数据预测-----')
-#        
-#        res = pd.DataFrame()
-#        for i,cls in enumerate(self.cls_list):
-#            cls = self.modellist[i]
-#            for echo in range(int(self.n_cls * self.cls_ratio[i])):
-#                ths_res = pd.DataFrame(cls.predict(x))
-#                res = pd.concat([res,ths_res],axis =1 )
-#        #使用投票的方式进行，获取类别
-#        score_df = pd.DataFrame()
-#        label = set(res.iloc[:,0])
-#        for lab in label:
-#            #计算每个样本
-#            score = pd.DataFrame(res[res == lab].count(axis=1)/len(label),columns = [lab]) 
-#            score_df = pd.concat([score_df,score],axis = 1)
-#        #根据得分，投票计算最终结果
-#        res_list = []     
-#        for i in range(len(score_df)):
-#            res_list.append(score_df.iloc[i,:][score_df.iloc[i,:] == score_df.iloc[i,:].max()].index[0])
-#        res_fanl = np.array(res_list)
-#
-#        return res_fanl
-#    
-#    def static_keyfeature(self,method = 'sum',TopN = 20):
-#        '''
-#        统计关键因子
-#        '''
-#        print('-----开始对stack模型进行关键因子统计-----')
-#        if method == 'count':
-#            keyfea_cnt = Counter()
-#            if len(self.keyfeatures):
-#                for key in self.keyfeatures.keys():
-#                    for feat in self.keyfeatures[key].index:
-#                        if feat in keyfea_cnt:
-#                            keyfea_cnt[feat] += 1
-#                        else:
-#                            keyfea_cnt[feat] = 1
-#                keyfea_cnt = keyfea_cnt.most_common(TopN) 
-#                #根据关键因子出现次数，画图
-#                keyfea_df = pd.DataFrame(keyfea_cnt).set_index(0)
-#            else:
-#                keyfea_df = None
-#                
-#        elif method == 'sum':
-#            keyfea_df = pd.DataFrame()
-#            if len(self.keyfeatures):
-#                for key in self.keyfeatures.keys():
-#                    keyfea_df = pd.concat([keyfea_df,self.keyfeatures[key]],axis=1)
-#                keyfea_df = pd.DataFrame(keyfea_df.sum(axis=1).sort_values(),columns=['importances'])
-#                keyfea_df = keyfea_df.iloc[0:TopN,:]
-#            else:
-#                keyfea_df = None
-#        
-#        plt = Data_plot.plot_barh(keyfea_df)
-#        plt.title('Feature importances')
-#        plt.ylabel('Feature')
-#        plt.xlabel('importances')
-#
-#        return keyfea_df
     
 
                 

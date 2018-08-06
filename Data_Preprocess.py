@@ -14,7 +14,9 @@ import pdb
 from collections import defaultdict,Counter
 from sklearn import linear_model
 from sklearn import preprocessing
-from sklearn.neighbors import KNeighborsClassifier
+from sklearn.neighbors import KNeighborsClassifier,KNeighborsRegressor
+from sklearn import linear_model,tree
+from sklearn.preprocessing import PolynomialFeatures
 #from sklearn.preprocessing import LabelEncoder,OneHotEncoder
 
 
@@ -25,7 +27,7 @@ def __check_label(data):
     label_col = list(set(data.columns) - set(data.describe().columns))
     return label_col
 
-def __check_discrete(data,check_num =10):
+def check_discrete(data,check_num =10):
     '''
     筛选数据中的离散列，默认unique = 10
     '''
@@ -94,7 +96,7 @@ def get_variable_type(data):
     data = data.loc[:,collist]
     res.loc[constant_col,:] = -1
     #判断离散列
-    disct_col = __check_discrete(data)
+    disct_col = check_discrete(data)
     collist = list(set(collist) - set(disct_col))
     data = data.loc[:,collist]
     res.loc[disct_col,:] = 1
@@ -103,106 +105,112 @@ def get_variable_type(data):
           len(label_col),len(constant_col),len(disct_col),len(collist)))
     return res
     
-def __fill_nan(data,method =1,label_col = None):
-    if method == 1:     
-        data = data.fillna(method ='ffill')
-            
-    elif method == 2:
-        for col in data.columns:
-            if __check_discrete(data[[col]]):
-                data.loc[:,[col]] = data[[col]].fillna(data[[col]].median())
-            else:
-                data.loc[:,[col]] = data[[col]].fillna(data[[col]].mean())
-                
-    elif method == 3:
-        for col in data.columns:
-            if len(data[col].dropna()) == len(data[col]):
-                continue
-            else: 
-                pass
 
-            #该columns 为目标col
-            if label_col is not None:
-                x_label = list(set(data.columns) - set([col]) - set([label_col]))
-            else:
-                x_label = list(set(data.columns) - set(col))
-            #预测序号，训练序号
-            pred_idx = data[col][data[col].isnull()].index.tolist()
-            train_idx = list(set(data.index.tolist()) - set(pred_idx))
-            
-            train_x = data.loc[train_idx,x_label]
-            train_y = data.loc[train_idx,col]
-            pred_x = data.loc[pred_idx,x_label]
-            #训练数据和测试数据可能存在nan值，需要剔除取交集后再训练
-            train_x = train_x.dropna(how = 'any',axis=1)
-            pred_x = pred_x.dropna(how = 'any',axis=1)
-            x_label = list(set(train_x.columns)&set(pred_x.columns))
-            #重新整理数据
-            train_x = train_x.loc[:,x_label]
-            pred_x = pred_x.loc[:,x_label]
 
-            if __check_discrete(data[col]):
-                try:
-                    knn_model = KNeighborsClassifier()
-                    knn_model.fit(train_x,train_y)
-                    pred_y = knn_model.predict(pred_x)
-                    data[col].loc[pred_idx] = pred_y
-                except:
-                    print('error1:',col)
-                    data.loc[:,[col]] = data[[col]].fillna(data[[col]].median())
-            else:
-                try:
-                    Linear_m = linear_model.LinearRegression()
-                    Linear_m.fit(train_x,train_y)
-                    pred_y = Linear_m.predict(pred_x)
-                    data[col].loc[pred_idx] = pred_y
-                except:
-                    print('error2:',col)
-                    data.loc[:,[col]] = data[[col]].fillna(data[[col]].mean())
-    return data
-
-def fill_nan(data,label_col = None, method = 1):
-    '''
-    by 列区分离散和连续。
-    method = 1 
-        离散：上一个值补值
-        连续：上一个值补值
-    method = 2
-        离散：按众数补值
-        连续：按均值补值
-    method = 3
-        离散：按分类补值
-        连续：按回归补值
-    '''
-    print('-----  数据补值  -----')
-    print('数据缺失统计信息：')
-    lines,cols = data.shape 
-    dropna_line = data.dropna(how = 'any',axis = 0).shape[0] 
-    dropna_col = data.dropna(how = 'any',axis = 1).shape[1] 
-    print('data dimension: {} lines, {} columns. \n nan dimension:'
-          ' {} lines, {} columns.'.format(lines,cols,lines - dropna_line,cols - dropna_col))
-    
-    #drop the columns that almost nan
-    drop_col = []
-    for col in data.columns:
-        if len(data[col].dropna()) < lines * 0.25:
-            drop_col.append(col)
-    print('the num of column almost(>75%) nan is {}'.format(len(drop_col)))
-    print('删除空值列结果：\n原数据 {} 列，其中，空值列： {} 列，数据列： {} 列。 '.format(data.shape[1],len(drop_col),data.shape[1]-len(drop_col))) 
-    data = data.drop(drop_col,axis=1)
-    
-    if label_col is None:
-        res =  __fill_nan(data,method = method)
+class Fillna():
+    def __init__(self,method):
+        self.method = method
+        self.label_col = None
+        self.drop_col = None
+        self.mean_mat = {}
+        self.median_mat = {}
+        self.model_list = {}
         
-    else:
-        res = pd.DataFrame()
-        for key,group in data.groupby(label_col):
-            group = __fill_nan(group,method = method,label_col = label_col)
-            res = pd.concat([res,group])
-
-    return res,drop_col
-
-
+    def fill_nan(self,data,mean_mat,median_mat):
+        if self.method == 1:     
+            data = data.fillna(method ='ffill')
+        
+        elif self.method == 2:
+            for col in data.columns:
+                if check_discrete(data[[col]]):
+                    data.loc[:,[col]] = data[[col]].fillna(median_mat.loc[col])
+                else:
+                    data.loc[:,[col]] = data[[col]].fillna(mean_mat.loc[col])
+                    
+        elif self.method == 3:
+            #计算相关性
+            fillnadata = copy.copy(data)
+            fillnadata = fillnadata.fillna(method ='ffill').dropna()
+            corr_df =  fillnadata.corr()
+            
+            for col in data.columns:
+                #建立分类模型
+                max_corr_col = abs(corr_df[col].drop(col,axis = 0).dropna()).sort_values().index[-1]
+                
+                train_data = data.loc[:,[max_corr_col,col]].dropna()
+                idx_nan = data[np.isnan(data.loc[:,col])].index
+                if col in self.model_list.keys():
+                    df_model = self.model_list[col]
+                else:
+                    df_model = KNeighborsRegressor()
+                    
+                    x = train_data.loc[:,max_corr_col].reshape(-1,1)
+                    y = train_data.loc[:,col].reshape(-1,1)
+                    df_model.fit(x,y)
+                    self.model_list[col] = df_model
+                if len(idx_nan):  
+                    data.loc[idx_nan,col] = df_model.predict(fillnadata.loc[idx_nan,max_corr_col].reshape(-1,1)) 
+        return data
+        
+    def fit(self,data,label_col = None):
+        '''
+        拟合
+        '''
+        print('-----  数据补值  -----')
+        print('数据缺失统计信息：')
+        lines,cols = data.shape 
+        dropna_line = data.dropna(how = 'any',axis = 0).shape[0] 
+        dropna_col = data.dropna(how = 'any',axis = 1).shape[1] 
+        print('data dimension: {} lines, {} columns. \n nan dimension:'
+              ' {} lines, {} columns.'.format(lines,cols,lines - dropna_line,cols - dropna_col))
+        
+        #drop the columns that almost nan
+        drop_col = []
+        for col in data.columns:
+            if len(data[col].dropna()) < lines * 0.25:
+                drop_col.append(col)
+        print('the num of column almost(>75%) nan is {}'.format(len(drop_col)))
+        print('删除空值列结果：\n原数据 {} 列，其中，空值列： {} 列，数据列： {} 列。 '.format(data.shape[1],len(drop_col),data.shape[1]-len(drop_col))) 
+        data = data.drop(drop_col,axis=1)
+        self.drop_col = drop_col
+        
+        
+        if self.label_col is None or self.method == 3:
+            #计算mean,median
+            self.mean_mat['Total'] = data.mean(axis = 0)
+            self.median_mat['Total'] = data.median(axis = 0)
+            
+            #进行补值
+            res = self.fill_nan(data,self.mean_mat['Total'],self.median_mat['Total'])
+            
+        else:
+            res = pd.DataFrame()
+            for key,group in data.groupby(self.label_col):
+                #计算mean,median
+                self.mean_mat[key] = group.mean(axis = 0)
+                self.median_mat[key] = group.median(axis = 0)
+                
+                group = self.fill_nan(group,self.mean_mat[key],self.median_mat[key])
+                res = pd.concat([res,group])
+            
+        return res
+    
+    def transform(self,data):
+        '''
+        预测
+        '''
+        if self.drop_col is not None:
+            data = data.drop(self.drop_col,axis = 1)
+        
+        if self.label_col is None:
+            res = self.__fill_nan(data,self.mean_mat['Total'],self.median_mat['Total'])
+        else:
+            res = pd.DataFrame()
+            for key,group in data.groupby(self.label_col):
+                group = self.fill_nan(group,self.mean_mat[key],self.median_mat[key])
+                res = pd.concat([res,group])
+        return res
+        
 class Data_Encoding():
     def __init__(self,method):
         self.method = method
@@ -303,7 +311,12 @@ class Data_Change():
             data = pd.DataFrame(scaler.fit_transform(data),
                             index = data.index,columns = data.columns)
             self.scaler = scaler
-                
+            
+            
+        elif self.method == 'poly':
+            scaler = preprocessing.PolynomialFeatures()
+            scaler.fit(data)
+            self.scaler = scaler
         
     def transform(self,data):    
         if self.method == 'log':
@@ -315,12 +328,16 @@ class Data_Change():
                 data = data.drop(self.data_col,axis =1)
                 
         elif self.method == 'avgstd':
-            data = pd.DataFrame(self.scaler.fit_transform(data),
+            data = pd.DataFrame(self.scaler.transform(data),
                                 index = data.index, columns = data.columns)
                 
         elif self.method == 'minmax':
-            data = pd.DataFrame(self.scaler.fit_transform(data),
+            data = pd.DataFrame(self.scaler.transform(data),
                                 index = data.index, columns = data.columns)     
+        
+        elif self.method == 'poly':
+            data = pd.DataFrame(self.scaler.transform(data),
+                                columns = self.scaler.get_feature_names())
         return data
     
     def inverse_transform(self,data):
@@ -332,6 +349,8 @@ class Data_Change():
         elif self.method == 'minmax':
             data = pd.DataFrame(self.scaler.inverse_transform(data),
                         index = data.index,columns = data.columns)
+        elif self.method == 'poly':
+            data = None
         
         return data
         
@@ -488,7 +507,7 @@ def long2width(data,index,col,value):
     其他列将根据index去重复后，保留最后一行，再与宽表合并。
     '''
     wid_tabel = data.pivot(index,col,value)
-    data = data.drop([col,value],axis=1)
+    data = data.drop([col,value],axis=1) 
     data = data.drop_duplicates([index],keep = 'last')
     res = pd.merge(wid_tabel,data,on = index)
     return res
