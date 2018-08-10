@@ -14,7 +14,7 @@ class Data():
         self.data = copy.copy(self.orgin_data)
         
         #初始化 datatype,默认 1：x, 2: y,3: primary_key,4: secondary_key,初始默认全部为x
-        self.data_type = pd.DataFrame(np.ones(x.shape[1]),index = x.columns,columns = 'data_type')
+        self.data_type = pd.DataFrame(np.ones(data.shape[1]),index = data.columns,columns = 'data_type')
         
         #初始化主键，次主键
         self.primary_key = None
@@ -33,6 +33,10 @@ class Data():
         #初始化pipeline_list
         self.Pipeline = None
         self.Pipeline_list = []
+        
+        #初始化数据转换模型
+        self.data_change_model = None
+        self.data_feature_reduction_model = None
         
     def get_primary_key(self):
         return list(self.data_type[self.data_type==3].dropna().index)
@@ -93,13 +97,27 @@ class Data():
         self.x = cek_out.fit(self.x)
         #新增工序list
         self.Pipeline_list.append(('check_outlier',cek_out))
+    
+    def data_change(self,method ='minmax'):
+        Dchange = Data_Preprocess.Data_Change(method = method)
+        Dchange.fit(self.x)
+        self.x = Dchange.transform(self.x)
+        #新增工序list
+        self.Pipeline_list.append(('data_change',Dchange))
+        self.data_change_model = Dchange
         
     def feature_reduction(self,method = 'pca'):
         fr = Data_feature_reduction.Feature_Reduction(method = method)
-        self.x = fr.fit(self.x)
+        if self.data_change is None:
+            self.data_change(method = 'avgstd')
+            self.x = fr.fit(self.x)
+        else:    
+            self.x = fr.fit(self.x)
         #新增工序list
         self.Pipeline_list.append(('feature_reduction',fr))
-        
+        self.data_feature_reduction_model = fr
+    
+    
     def predict(self,data):
         self.Pipeline = Pipeline(self.Pipeline_list)
         return self.Pipeline.predict(data)

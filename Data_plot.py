@@ -24,7 +24,7 @@ import pdb
 
 c = ['red','blue','green','gold','y'] 
 
-def plot_scatter(data,columnslist = None,label_col = None):
+def plot_scatter(data,columnslist = None,label_col = None,issns = True):
     '''
     一维散点：x轴：range(len(data)) ,y轴：data_x.
     二维散点：x轴：data[0],y轴：data[1] 
@@ -63,8 +63,16 @@ def plot_scatter(data,columnslist = None,label_col = None):
             
     elif len_col == 2:
         if label_col is None:
-            sns.jointplot(columnslist[0], columnslist[1], data=data ,kind="scatter")
-            
+            if issns :
+                sns.jointplot(columnslist[0], columnslist[1], data=data ,kind="scatter")
+            else:
+                x = np.array(data[columnslist[0]])                 
+                y = np.array(data[columnslist[1]]) 
+                        
+                plt.scatter(x, y,marker='o') 
+                plt.xlabel(columnslist[0])
+                plt.ylabel(columnslist[1])
+                plt.legend(loc='best')
         else:
             label = set(data[label_col])
             for i,lab in enumerate(label):
@@ -120,7 +128,7 @@ def plot_line(data,columnslist = None,label_col = None, c = None):
         
     if c is None:
         c = ['red','blue','green','gold','y'] 
-        
+
     len_col = len(columnslist)
     
     if len_col == 1:
@@ -151,7 +159,7 @@ def plot_line(data,columnslist = None,label_col = None, c = None):
             x = np.array(data[columnslist[0]]) 
             y = np.array(data[columnslist[1]])
                 
-            plt.plot(x,y)
+            plt.plot(x,y,c[0])
             plt.xlabel(columnslist[0])
             plt.ylabel(columnslist[1])
             

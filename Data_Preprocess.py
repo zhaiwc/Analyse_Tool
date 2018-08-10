@@ -75,7 +75,7 @@ def get_variable_type(data):
     按列进行判断数据的类型：
     判断顺序： -> (-3)空值 -> (-2)文本 -> (-1)常数 -> (1)离散 -> (2)连续    
     '''
-    print('-----因子标签标注-----')
+    print('----- 因子标签标注 -----')
     
     collist = list(data.columns)
     res = pd.DataFrame(np.zeros(len(collist)),
@@ -144,12 +144,12 @@ class Fillna():
                 else:
                     df_model = KNeighborsRegressor()
                     
-                    x = train_data.loc[:,max_corr_col].reshape(-1,1)
-                    y = train_data.loc[:,col].reshape(-1,1)
+                    x = train_data.loc[:,max_corr_col].values.reshape(-1,1)
+                    y = train_data.loc[:,col].values.reshape(-1,1)
                     df_model.fit(x,y)
                     self.model_list[col] = df_model
                 if len(idx_nan):  
-                    data.loc[idx_nan,col] = df_model.predict(fillnadata.loc[idx_nan,max_corr_col].reshape(-1,1)) 
+                    data.loc[idx_nan,col] = df_model.predict(fillnadata.loc[idx_nan,max_corr_col].values.reshape(-1,1)) 
         return data
         
     def fit(self,data,label_col = None):
@@ -294,7 +294,7 @@ class Data_Change():
         self.is_place = True
         
     def fit(self,data,is_replace = True):
-        print('-----开始进行因子变换:转换方法：{}-----'.format(self.method))
+        print('----- 因子变换: {} -----'.format(self.method))
         self.is_place = is_replace
         if self.method == 'log':
             self.data_col = data.columns

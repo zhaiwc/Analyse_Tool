@@ -334,6 +334,31 @@ def nonlinear_corr_analysis(data,y = None,columnslist = None,label_col = None,th
             data = data.reindex(index = y.index)
     return data,corr_df,drop_col
         
+def group2group_diff(df1,df2):
+    '''
+    分别比较两组均值差异
+    
+    '''
+    df1_mean = df1.mean(axis = 0)
+    df2_mean = df2.mean(axis = 0)
+    return pd.DataFrame((df1_mean - df2_mean).sort_values(),columns = ['diff']) 
+
+def ishave_Outlier(df):
+    '''
+    获取超过3sigma的列名
+    '''
+    upline = df.mean() + 3 * df.std()
+    dnline = df.mean() - 3 * df.std()
+
+    res = []
+    check_mat = df[(df>upline)|(df<dnline)]
+    
+    for col in check_mat.columns:
+        if len(check_mat.loc[:,col].dropna()):
+            res.append(col)
+    
+    res = list(set(res))
+    return res
 
 def granger_causal_analysis(data,columnslist = None,label_col = None,threshold = 0.8,
                       mix_method = 'max',k=1,m=1,isdrop = False):

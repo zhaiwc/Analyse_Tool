@@ -15,11 +15,14 @@ from xgboost import XGBRegressor,XGBClassifier
 from collections import Counter,defaultdict
 from mlxtend.regressor import StackingRegressor
 from mlxtend.classifier import StackingClassifier
+from sklearn.preprocessing import label_binarize
 import sklearn.ensemble as esb
 import pdb
 import copy
+import time
 import pandas as pd
 import numpy as np
+
 
 def split_train_test(x,y,test_size = 0.2,random_state = None):
     '''
@@ -170,7 +173,7 @@ class reg_model():
                 
     def fit(self,x,y):
         x_train = np.array(x)
-        y_train = np.array(y)
+        y_train = np.array(y).reshape(y.shape[0],)
         self.factor_name = list(x.columns)
         if self.parameters is None:
             self.set_parameters()
@@ -233,24 +236,31 @@ class reg_model():
     
     def get_vip(self,isplot = True):
         #计算关键因子，
-        col_name = 'variable importance'
-        if self.method in ['linear'] :
-            var_importance = pd.DataFrame(abs(self.reg_model.coef_),index = [col_name] ,columns = self.factor_name)
-        elif self.method in ['ridge','lasso','ElasticNet']:
-            var_importance = pd.DataFrame(abs(self.reg_model.best_estimator_.coef_),index = [col_name] ,columns = self.factor_name)
-        elif self.method in ['rf','adaBoost','gbm','xgb']:
-#            var_importance = None
-            pass
-        res = var_importance.T.sort_values(col_name)
-        #对因子重要性进行归一化。
-        Dchange = Data_Preprocess.Data_Change('minmax')
-        res = Dchange.fit_transform(res)
-        #画条形图
-        if isplot:
-            plt = Data_plot.plot_bar_analysis(res)
-            plt.title('variable importance')
-            plt.show()
-        return res
+        if self.method in ['svr','knn','dt']:
+            #上述算法没有办法衡量重要因子
+            return None
+        else:
+            col_name = 'variable importance'
+            if self.method in ['linear'] :
+                var_importance = pd.DataFrame(abs(self.reg_model.coef_),index = [col_name] ,columns = self.factor_name)
+            elif self.method in ['ridge','lasso','ElasticNet','pls']:
+                coef = self.reg_model.best_estimator_.coef_.reshape(-1,1)
+                var_importance = pd.DataFrame(abs(coef),columns = [col_name] ,index = self.factor_name)
+            elif self.method in ['rf','adaBoost','gbm','xgb']:
+    #            var_importance = None
+                coef = self.reg_model.best_estimator_.feature_importances_.reshape(-1,1)
+                var_importance = pd.DataFrame(abs(coef),columns = [col_name] ,index = self.factor_name)
+            res = var_importance.sort_values(col_name)
+            #对因子重要性进行归一化。
+            Dchange = Data_Preprocess.Data_Change('minmax')
+            Dchange.fit(res)
+            res = Dchange.transform(res)
+            #画条形图
+            if isplot:
+                plt = Data_plot.plot_bar_analysis(res)
+                plt.title('variable importance')
+                plt.show()
+            return res
             
 class reg_stack():
     '''
@@ -271,8 +281,11 @@ class reg_stack():
         '''
         拟合：
         '''
+        x_train = np.array(x)
+        y_train = np.array(y).reshape(y.shape[0],)
         model_list = []
-        basic_reg = ['linear','ridge']
+        basic_reg = ['linear','ridge','lasso','ElasticNet','pls','svr','knn','dt','rf','adaBoost','gbm','xgb']
+        #添加基础回归模型
         for model_name in self.listModelName:
             if model_name in basic_reg:
 
@@ -294,18 +307,33 @@ class reg_stack():
         elif self.meta_reg == 'ridge' :
             meta_reg = linear_model.Ridge()
         self.stack = StackingRegressor(regressors = model_list,meta_regressor = meta_reg)
-        self.stack.fit(x,y)
+        self.stack.fit(x_train,y_train)
     
     def predict(self,x):
         return self.stack.predict(x)
     
-    def get_vip(self):
+    def get_vip(self,stack_method = 'weight',isplot = True):
         res = []
-        for key in self.train_model:
-            res.append(self.train_model[key].get_vip(isplot = False))
+        idx = []
+        for i,key in enumerate(self.train_model):
+            vip = self.train_model[key].get_vip(isplot = False)
+            if vip is not None:
+                res.append(vip)
+                idx.append(i)
         #不同模型结果融合
-        if self.stack_method == 'avg':
-            res = pd.concat(res,axis = 1).mean(axis = 1)
+        temp = pd.concat(res,axis = 1)
+        if stack_method == 'avg':
+            res = temp.mean(axis = 1).sort_values()
+        elif stack_method == 'weight':
+            res = np.dot(temp.values,self.stack.coef_[idx])
+            res = pd.DataFrame(res,index = temp.index,columns = ['variable importance']).sort_values('variable importance')
+        
+        #画条形图
+        if isplot:
+            plt = Data_plot.plot_bar_analysis(res)
+            plt.title('variable importance')
+            plt.show()
+        
         return res
     
 class reg_stack_muti():
@@ -384,12 +412,13 @@ class reg_stack_muti():
         '''
         拟合：
         '''
-        basic_reg = ['linear','ridge']
+        basic_reg = ['linear','ridge','lasso','ElasticNet','pls','svr','knn','dt','rf','adaBoost','gbm','xgb']
         X_train, X_test, y_train, y_test = split_train_test(x,y,test_size=0.1)
         for model_name in self.listModelName:
             if model_name in basic_reg:
-                
                 #模型预训练
+                print('当前训练模型： {} '.format(model_name))
+                start =time.clock()
                 pre_reg = reg_model(model_name,isGridSearch = self.isGridSearch)
                 
                 if model_name in self.dict_para.keys():
@@ -399,18 +428,26 @@ class reg_stack_muti():
                     pass
                 pre_reg.fit(x,y)
                 best_reg_para = pre_reg.best_parameters
+                end = time.clock()
+                print('优化参数模型，耗时： {} s '.format(end - start))
+                start = end
                 
                 model_list = []
                 for i in range(self.n_model):
                 #一共生成n_model个模型，先进行样本抽样 
+                    
                     X_train_sampling , y_train_sampling = self.sampling(X_train,y_train)
                     reg = reg_model(model_name,isGridSearch = self.isGridSearch)
                     reg.set_parameters(best_reg_para)
                     #模型拟合
                     reg.fit(X_train_sampling,y_train_sampling)
                     model_list.append(reg)
+                    end = time.clock()
+                    print('第  {} 个模型，耗时： {} s '.format(i,end - start))
+                    start = end
                     
                 #根据筛选条件
+                print('进行模型筛选 {} of {} '.format(self.TopN,self.n_model))
                 self.train_model[model_name] = self.filtrate(model_list,X_test,y_test)
                 
                 #计算验证集mse
@@ -445,28 +482,45 @@ class reg_stack_muti():
             res = np.dot(res,weight)
         return res.values
     
-    def get_vip(self):
+    def get_vip(self,stack_method = 'avg',isplot = True):
         '''
         计算融合 关键因子
         ‘avg’:对关键因子权重求平均
         ‘weight’:对关键因子权重加权求和
         '''
         res = []
-        for model_name in self.listModelName:
+        idx = []
+        for i,model_name in enumerate(self.listModelName):
             sub_model_res = []
             for sub_model in self.train_model[model_name]:
-                sub_model_res.append(sub_model.get_vip(isplot = False))
+                vip = sub_model.get_vip(isplot = False)
+                if vip is not None:
+                    sub_model_res.append(vip)
+                    
             #子模型结果融合
-            sub_model_res = pd.concat(sub_model_res,axis = 1).mean(axis = 1)
-            res.append(sub_model_res)
+            if len(sub_model_res):
+#                factor_name = sub_model_res.index
+                idx.append(i)
+                sub_model_res = pd.concat(sub_model_res,axis = 1).mean(axis = 1)
+                res.append(sub_model_res)
+                
         #不同模型结果融合
-        if self.stack_method == 'avg':
+        if stack_method == 'avg':
             res = pd.concat(res,axis = 1).mean(axis = 1)
-        elif self.stack_method == 'weight':
+        elif stack_method == 'weight':
             res = pd.concat(res,axis = 1).values
-            weight = np.array(self.mse_list).reshape(len(res),1)
+            weight = np.array(self.mse_list[idx]).reshape(len(res),1)/sum(self.mse_list)
             res = np.dot(res,weight)
-        return res.values
+
+        res = pd.DataFrame(res.values,index = res.index,columns = ['variable importance']).sort_values('variable importance')
+        
+        #画条形图
+        if isplot:
+            plt = Data_plot.plot_bar_analysis(res)
+            plt.title('variable importance')
+            plt.show()
+        
+        return res
           
 def reg_score(reg,train_x,train_y,valid_x,valid_y,label = None,is_plot = True,
               y_change = None,**kw):
@@ -502,7 +556,7 @@ def reg_score(reg,train_x,train_y,valid_x,valid_y,label = None,is_plot = True,
     
     
         plot_train_data = pd.concat([train_y,train_pred_y],axis=1)
-        plt = Data_plot.plot_scatter(plot_train_data) 
+        plt = Data_plot.plot_scatter(plot_train_data,issns=False) 
         line_data = np.array([[plot_train_data.max()[0],plot_train_data.max()[0]],[plot_train_data.min()[0],plot_train_data.min()[0]]])
         plt = Data_plot.plot_line(pd.DataFrame(line_data,columns=['y_true','y_pred']))
         plt.show()
@@ -525,7 +579,7 @@ def reg_score(reg,train_x,train_y,valid_x,valid_y,label = None,is_plot = True,
         
         
         plot_valid_data = pd.concat([valid_y,valid_pred_y],axis=1)
-        plt = Data_plot.plot_scatter(plot_valid_data) 
+        plt = Data_plot.plot_scatter(plot_valid_data,issns=False) 
         line_data = np.array([[plot_valid_data.max()[0],plot_valid_data.max()[0]],[plot_valid_data.min()[0],plot_valid_data.min()[0]]])
         plt = Data_plot.plot_line(pd.DataFrame(line_data,columns=['y_true','y_pred']),)
         plt.show()
@@ -612,7 +666,7 @@ class cls_model():
                                        }
                 elif self.method == 'svm':
                     self.parameters = {"C": [0.1,1,10,100],
-                                       "epsilon": [10,1,0.1,0.01]}
+                                       }
                 elif self.method == 'dt':
                     self.parameters ={'max_depth' :[3,5,7]}
                 elif self.method == 'rf':
@@ -637,7 +691,7 @@ class cls_model():
                     self.parameters = {"n_neighbors": [5],}
                 elif self.method == 'svm':
                     self.parameters = {"C": [1],
-                                       "epsilon": [0.1]}
+                                       }
                 elif self.method == 'dt':
                     self.parameters ={'max_depth' :[5]}
                 elif self.method == 'rf':
@@ -665,38 +719,39 @@ class cls_model():
         if self.parameters is None:
             self.set_parameters()
         
-        scoring = {"roc": make_scorer(roc_auc_score),}
+        scoring = {#"roc": make_scorer(roc_auc_score),
+                   "acc": make_scorer(accuracy_score),}
         
         if self.method == 'logistic':
             self.cls_model = linear_model.LogisticRegression()
             self.cls_model.fit(x_train,y_train)
             
         elif self.method == 'knn':
-            self.cls_model = GridSearchCV(KNeighborsClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='roc')
+            self.cls_model = GridSearchCV(KNeighborsClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='acc')
             self.cls_model.fit(x_train,y_train)
         
         elif self.method == 'svm':
-            self.cls_model = GridSearchCV(svm.SVC(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='roc')
+            self.cls_model = GridSearchCV(svm.SVC(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='acc')
             self.cls_model.fit(x_train,y_train)
         elif self.method == 'dt':
-            self.reg_model = GridSearchCV(tree.DecisionTreeClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='roc')
-            self.reg_model.fit(x_train,y_train)
+            self.cls_model = GridSearchCV(tree.DecisionTreeClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='acc')
+            self.cls_model.fit(x_train,y_train)
             
         elif self.method == 'rf':
-            self.reg_model = GridSearchCV(esb.RandomForestClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='roc')
-            self.reg_model.fit(x_train,y_train)
+            self.cls_model = GridSearchCV(esb.RandomForestClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='acc')
+            self.cls_model.fit(x_train,y_train)
             
         elif self.method == 'adaBoost':
-            self.reg_model = GridSearchCV(esb.AdaBoostClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='roc')
-            self.reg_model.fit(x_train,y_train)
+            self.cls_model = GridSearchCV(esb.AdaBoostClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='acc')
+            self.cls_model.fit(x_train,y_train)
             
         elif self.method == 'gbm':
-            self.reg_model = GridSearchCV(esb.GradientBoostingClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='roc')
-            self.reg_model.fit(x_train,y_train)
+            self.cls_model = GridSearchCV(esb.GradientBoostingClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='acc')
+            self.cls_model.fit(x_train,y_train)
         
         elif self.method == 'xgb': 
-            self.reg_model = GridSearchCV(XGBClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='roc')
-            self.reg_model.fit(x_train,y_train)
+            self.cls_model = GridSearchCV(XGBClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='acc')
+            self.cls_model.fit(x_train,y_train)
             
     
     def predict(self,x):
@@ -704,21 +759,36 @@ class cls_model():
         x_pred = np.array(x)
         return self.cls_model.predict(x_pred)
     
+    def predict_proba(self,x):
+        x_pred = np.array(x)
+        try:
+            res = self.cls_model.predict_proba(x_pred)
+        except:
+            res = None
+        finally:
+            return res
+    
     def get_vip(self,isplot=True):
         #计算关键因子重要性
         col_name = 'variable importance'
-        if self.method in ['knn']:
+        if self.method in ['knn','dt','svm']:
             res = None
             
         else:
             if self.method in ['logistic'] :
-                var_importance = pd.DataFrame(abs(self.cls_model.coef_),index = [col_name] ,columns = self.factor_name)
-#            elif self.method in ['ridge','lasso',''] :
-#                var_importance = pd.DataFrame(abs(self.reg_model.best_estimator_.coef_),index = [col_name] ,columns = self.factor_name)
-            res = var_importance.T.sort_values(col_name)
+                mean_coef = pd.DataFrame(abs(self.cls_model.coef_)).T.mean(axis=1)
+                var_importance = pd.DataFrame(mean_coef.values,index = self.factor_name , columns = [col_name])
+#                var_importance = pd.DataFrame(abs(self.cls_model.coef_),index = [col_name] ,columns = self.factor_name)
+                
+            elif self.method in ['rf','adaBoost','gbm','xgb']:
+                coef = self.cls_model.best_estimator_.feature_importances_.reshape(-1,1)
+                var_importance = pd.DataFrame(abs(coef),columns = [col_name] ,index = self.factor_name)
+            
+            res = var_importance.sort_values(col_name)
             #对因子重要性进行归一化。
             Dchange = Data_Preprocess.Data_Change('minmax')
-            res = Dchange.fit_transform(res)
+            Dchange.fit(res)
+            res = Dchange.transform(res)
             #画条形图
             if isplot:
                 plt = Data_plot.plot_bar_analysis(res)
@@ -943,7 +1013,19 @@ def cls_scors(cls,train_x,train_y,valid_x,valid_y,label = None):
         
     train_pred_y = cls.predict(train_x_input)
     train_acc = accuracy_score(train_y,train_pred_y)
-    train_auc = roc_auc_score(train_y,train_pred_y)
+    
+    n_class = train_y.drop_duplicates().shape[0]
+    # 计算属于各个类别的概率，返回值的shape = [n_samples, n_classes]
+    y_pred = cls.predict(train_x)
+    y_score = cls.predict_proba(train_x)
+    y_one_hot = label_binarize(train_y, np.arange(n_class))
+    if n_class > 2:
+        if y_score is not None:
+            train_auc = roc_auc_score(y_one_hot, y_score, average='micro')
+        else:
+            train_auc = -1
+    else:
+        train_auc = roc_auc_score(train_y,y_pred)
     train_pred_y = pd.DataFrame(train_pred_y,columns=['train_pred_y'],index = train_y.index)
     
     plt = Data_plot.plot_confusion_matrix(train_y,train_pred_y)   
@@ -952,7 +1034,19 @@ def cls_scors(cls,train_x,train_y,valid_x,valid_y,label = None):
     
     valid_pred_y = cls.predict(valid_x_input)
     valid_acc = accuracy_score(valid_y,valid_pred_y)
-    valid_auc = roc_auc_score(valid_y,valid_pred_y)
+    
+    # 计算属于各个类别的概率，返回值的shape = [n_samples, n_classes]
+    y_valid_pred = cls.predict(valid_x)
+    y_valid_score = cls.predict_proba(valid_x)
+    y_valid_one_hot = label_binarize(valid_y, np.arange(n_class))
+    
+    if n_class > 2:
+        if y_score is not None:
+            valid_auc = roc_auc_score(y_valid_one_hot,y_valid_score)
+        else:
+            valid_auc = -1
+    else:
+        valid_auc = roc_auc_score(valid_y,y_valid_pred)    
     valid_pred_y = pd.DataFrame(valid_pred_y,columns=['valid_pred_y'],index = valid_y.index)
     
     plt = Data_plot.plot_confusion_matrix(valid_y,valid_pred_y)   

@@ -120,9 +120,35 @@ class Feature_Reduction():
     
     def plot_score_scatter(self,data,label_col = None):
         dr_data = self.dr_model.transform(data)
-        plot_data = dr_data.iloc[:,0:2]
-        plt = Data_plot.plot_scatter(plot_data,label_col = label_col)
+        plot_data = pd.DataFrame(dr_data[:,0:2],index = data.index,columns = ['pca1','pca2'])
+
+        plt = Data_plot.plot_scatter(plot_data,label_col = label_col,issns = False)        
+        #画x,y轴
+        max_x = max(dr_data[:,0].std()*3,dr_data[:,0].max())
+        max_y = max(dr_data[:,1].std()*3,dr_data[:,1].max())
+        x_mat = pd.DataFrame([[max_x,0],[-max_x,0]])
+        y_mat = pd.DataFrame([[0,-max_y],[0,max_y]])
+        plt = Data_plot.plot_line(x_mat,c=['b--'])
+        plt = Data_plot.plot_line(y_mat,c=['b--'])
+        plt.xlabel('pca1')
+        plt.ylabel('pca2')
         plt.title('pca1 vs pca2 scatter')
+        plt.show()
+    
+    def plot_loading_scatter(self,data,label_col = None):
+        comp_mat = self.dr_model.components_.T[:,0:2]
+        plot_data = pd.DataFrame(comp_mat,index = data.columns,columns = ['comp1','comp2'])
+        plt = Data_plot.plot_scatter(plot_data,label_col = label_col,issns = False)
+         #画x,y轴
+        max_x = max(comp_mat[:,0].std()*3,comp_mat[:,0].max())
+        max_y = max(comp_mat[:,1].std()*3,comp_mat[:,1].max())
+        x_mat = pd.DataFrame([[max_x,0],[-max_x,0]])
+        y_mat = pd.DataFrame([[0,-max_y],[0,max_y]])
+        plt = Data_plot.plot_line(x_mat,c=['b--'])
+        plt = Data_plot.plot_line(y_mat,c=['b--'])
+        plt.xlabel('pca1')
+        plt.ylabel('pca2')
+        plt.title('pca1 vs pca2 loadings')
         plt.show()
         
     def plot_cum_std(self,data,n = 30):
