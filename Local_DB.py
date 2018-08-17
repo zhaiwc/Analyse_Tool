@@ -39,27 +39,29 @@ class LocalDB():
     def __init__(self,project_name):
         self.project_name = project_name
         
-        self.root_path = 'D:\\python\\local_db'
+        self.root_path = os.getcwd()+'\\Local_DB'
         self.log_path = self.root_path +'\\log'
+        
     def __open_dict(self):
         '''
         到指定路径下打开数据字典,返回该project下的字典,一定会新建空字典
         '''
-        
         if os.path.exists(self.root_path):
-            dict_path = self.root_path +'\\data_dict.dat'
+            dict_path = self.root_path +'\\data_dict'
+        else:
+            os.mkdir(self.root_path)
+            dict_path = self.root_path +'\\data_dict'
+            
+        if os.path.exists(dict_path+'.dat'):
             db = shelve.open(dict_path, 'c')
-#            pdb.set_trace()
+
             data_dict = db['data_dict']
             db.close()
             if self.project_name in data_dict.keys():
                 res = data_dict[self.project_name]
             else:
                 res = {}
-            
         else:
-            os.mkdir(self.root_path)
-            dict_path = self.root_path +'\\data_dict.dat'
             db = shelve.open(dict_path, 'c')
             data_dict = {}
             data_dict[self.project_name] = {}
@@ -69,12 +71,35 @@ class LocalDB():
             db.close()
             
         return res
+#        if os.path.exists(self.root_path):
+#            dict_path = self.root_path +'\\data_dict.dat'
+#            db = shelve.open(dict_path, 'c')
+#
+#            data_dict = db['data_dict']
+#            db.close()
+#            if self.project_name in data_dict.keys():
+#                res = data_dict[self.project_name]
+#            else:
+#                res = {}
+#            
+#        else:
+#            os.mkdir(self.root_path)
+#            dict_path = self.root_path +'\\data_dict.dat'
+#            db = shelve.open(dict_path, 'c')
+#            data_dict = {}
+#            data_dict[self.project_name] = {}
+#
+#            db['data_dict'] = data_dict
+#            res = data_dict[self.project_name]
+#            db.close()
+            
+        
     
     def __update_dict(self,new_dict):
         '''
         根据新输入的dict进行update
         '''
-        dict_path = self.root_path +'\\data_dict.dat'
+        dict_path = self.root_path +'\\data_dict'
         db = shelve.open(dict_path, 'c')
         orgin_dict = db['data_dict']
         orgin_dict[self.project_name] = new_dict
@@ -126,6 +151,7 @@ class LocalDB():
         '''
         data_dict = self.__open_dict()
         #创建文件路径
+        
         if os.path.exists(self.root_path+ '\\' + str(self.project_name)) == False:
             os.mkdir(self.root_path+ '\\' + str(self.project_name))
         if os.path.exists(self.root_path+ '\\' + str(self.project_name + '\\data')) == False:
@@ -133,8 +159,8 @@ class LocalDB():
 
         if 'data' in data_dict.keys():
             if data_name in data_dict['data']['data_name'].tolist():
-                print('-----重复命名data_name:{}-----'.format(data_name))
-                return False
+                #已经存在则不更新
+                return True
             else:
                 data_path = self.root_path + '\\' + str(self.project_name) + '\\data\\' + str(data_name)
                 new_data = pd.DataFrame([data_name,remark,data_path],index = ['data_name','remark','data_path']).T
@@ -158,11 +184,10 @@ class LocalDB():
             os.mkdir(self.root_path+ '\\' + str(self.project_name))
         if os.path.exists(self.root_path+ '\\' + str(self.project_name + '\\model')) == False:
             os.mkdir(self.root_path+ '\\' + str(self.project_name + '\\model'))
-
         if 'model' in data_dict.keys():
             if model_name in data_dict['model']['model_name'].tolist():
-                print('-----重复命名model_name:{}-----'.format(model_name))
-                return False
+                #已经存在则不更新
+                return True
             else:
                 model_path = self.root_path + '\\' + str(self.project_name) + '\\model\\' + str(model_name)
                 new_model = pd.DataFrame([model_name,remark,model_path],index = ['model_name','remark','model_path']).T
@@ -382,8 +407,9 @@ class LocalDB():
         将模型保存入指定的位置，并同时更新数据字典
         '''
         if self.__insert_dict_model(model_name,remark):
-            data_dict = self.__open_dict()
 #            pdb.set_trace()
+            data_dict = self.__open_dict()
+            
             model_info = data_dict['model']
             model_path = model_info[model_info.model_name == model_name]['model_path'].values[0]
             self.__save_model_by_path(model_path,model)
@@ -427,8 +453,8 @@ if __name__ == '__main__':
     data = pd.DataFrame([1,2,3,4])
 #    pdb.set_trace()
 #    test.del_model('data2')
-#    test.save_model('data2',data,remark ='-' )
-    test.get_log()
+    test.save_model('data2',data,remark ='-' )
+    test.select_dict()
 #    testdict = test.select_dict()
 #    print(test.insert_dict_data('data3',remark='test_1'))
 #    obj=LocalDB('obj')

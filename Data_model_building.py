@@ -443,7 +443,7 @@ class reg_stack_muti():
                     reg.fit(X_train_sampling,y_train_sampling)
                     model_list.append(reg)
                     end = time.clock()
-                    print('第  {} 个模型，耗时： {} s '.format(i,end - start))
+                    print('第  {} 个模型，耗时： {} s '.format(i+1,end - start))
                     start = end
                     
                 #根据筛选条件
@@ -813,7 +813,7 @@ class cls_model_stack():
         拟合：
         '''
         model_list = []
-        basic_cls = ['logistc','knn']
+        basic_cls = ['logistic','knn','svm','dt','rf','adaBoost','gbm','xgb']
         for model_name in self.listModelName:
             if model_name in basic_cls:
 
@@ -842,16 +842,43 @@ class cls_model_stack():
     def predict(self,x):
         return self.stack.predict(x)
     
-    def get_vip(self):
+    def get_vip(self,stack_method = 'avg',isplot = True):
         res = []
-        for key in self.train_model:
+        idx = []
+        for i,key in enumerate(self.train_model):
             vip = self.train_model[key].get_vip(isplot = False)
             if vip is not None:
-                res.append()
+                res.append(vip)
+                idx.append(i)
         #不同模型结果融合
-        if self.stack_method == 'avg':
-            res = pd.concat(res,axis = 1).mean(axis = 1)
+        if len(res) == 0:
+            res = None
+        else:
+            temp = pd.concat(res,axis = 1)
+            if stack_method == 'avg':
+                res = temp.mean(axis = 1).sort_values()
+                res = pd.DataFrame(res,columns = ['variable importance'])
+#            elif stack_method == 'weight':
+#                pass
+#                res = np.dot(temp.values,self.stack.coef_[idx])
+#                res = pd.DataFrame(res,index = temp.index,columns = ['variable importance']).sort_values('variable importance')
+            
+            #画条形图
+            if isplot:
+                plt = Data_plot.plot_bar_analysis(res)
+                plt.title('variable importance')
+                plt.show()
+            
         return res
+
+    def predict_proba(self,x):
+        x_pred = np.array(x)
+        try:
+            res = self.stack.predict_proba(x_pred)
+        except:
+            res = None
+        finally:
+            return res
 
 class cls_model_stack_muti():
     def __init__(self,listModelName,isGridSearch = True , dict_para = {},n_model = 1,
@@ -870,7 +897,7 @@ class cls_model_stack_muti():
         
         #缺省参数
         self.train_model = defaultdict(list)
-        self.roc_list = []
+        self.acc_list = []
         
     def sampling(self,x,y):
         '''
@@ -897,14 +924,11 @@ class cls_model_stack_muti():
                 res = model_list
             else:
                 res_dict = {}
-                if self.KPI == 'roc': 
-                    for i,cls in enumerate(model_list):
-                        res_dict[i] = roc_auc_score(y,cls.predict(x))
-                    res_dict = pd.DataFrame(res_dict,index = ['roc']).T.sort_values('roc').iloc[:self.TopN,:]
-                elif self.KPI == 'acc':
-                    for i,cls in enumerate(model_list):
-                        res_dict[i] = accuracy_score(y,cls.predict(x))
-                    res_dict = pd.DataFrame(res_dict,index = ['acc']).T.sort_values('acc').iloc[:self.TopN,:]
+                
+                for i,cls in enumerate(model_list):
+                    res_dict[i] = accuracy_score(y,cls.predict(x))
+                res_dict = pd.DataFrame(res_dict,index = ['acc']).T.sort_values('acc').iloc[:self.TopN,:]
+                
                 for cls_idx in res_dict.index:
                     res.append(model_list[cls_idx])
                     
@@ -925,7 +949,7 @@ class cls_model_stack_muti():
         '''
         拟合：
         '''
-        basic_cls = ['logistc','knn']
+        basic_cls = ['logistic','knn']
         X_train, X_test, y_train, y_test = split_train_test(x,y,test_size=0.1)
         for model_name in self.listModelName:
             if model_name in basic_cls:
@@ -949,17 +973,23 @@ class cls_model_stack_muti():
                     cls.set_parameters(best_cls_para)
                     #模型拟合
                     cls.fit(X_train_sampling,y_train_sampling)
-                    model_list.append(cls)
-                    
+                    model_list.append(cls) 
                 #根据筛选条件
                 self.train_model[model_name] = self.filtrate(model_list,X_test,y_test)
                 
-                #计算验证集roc
+                #计算验证集acc
                 sub_model_res = []
                 for sub_model in self.train_model[model_name]:
                     sub_model_res.append(pd.DataFrame(sub_model.predict(X_test)))
-                sub_model_res = pd.concat(sub_model_res,axis = 1).mean(axis = 1)
-                self.roc_list.append(roc_auc_score(y_test,sub_model_res))
+                
+                sub_model_res = pd.concat(sub_model_res,axis = 1)
+                res_list = []
+                for idx in range(len(sub_model_res)):
+                    res_list.append(sub_model_res.iloc[idx].value_counts().sort_values().index[-1])
+                res = np.array(res_list)
+#                sub_model_res = pd.concat(sub_model_res,axis = 1).mean(axis = 1)
+                
+                self.acc_list.append(accuracy_score(y_test,res))
     
     def predict(self,x):
         '''
@@ -979,7 +1009,7 @@ class cls_model_stack_muti():
         res = np.array(res)
         return res
     
-    def get_vip(self):
+    def get_vip(self,isplot =True):
         '''
         计算融合 关键因子
         ‘avg’:对关键因子权重求平均
@@ -987,23 +1017,49 @@ class cls_model_stack_muti():
         '''
         
         res = []
-        pdb.set_trace()
-        for key in self.train_model.keys:
+
+        for key in self.train_model.keys():
             if len(self.train_model[key]):
-                
-                vip = self.train_model[key].get_vip(isplot = False)
-            if vip is not None:
-                res.append()
+                for i in range(len(self.train_model[key])):     
+                    vip = self.train_model[key][i].get_vip(isplot = False)
+                    if vip is not None:
+                        res.append(vip)
         #不同模型结果融合
-        if self.stack_method == 'avg':
-            res = pd.concat(res,axis = 1).mean(axis = 1)
+        if len(res):
+            if self.stack_method == 'avg':
+                res = pd.concat(res,axis = 1).mean(axis = 1).sort_values()
+            
+            res = pd.DataFrame(res,columns = ['variable importance'])
+            if isplot:
+                plt = Data_plot.plot_bar_analysis(res)
+                plt.title('variable importance')
+                plt.show()
+        else:
+            res = None 
         return res
     
-    
+    def predict_proba(self,x):
+        res = None
+        cnt = 0
+        x_pred = np.array(x)
+        for model_name in self.listModelName:
+            for sub_model in self.train_model[model_name]:
+                prod_mat = sub_model.predict_proba(x_pred)
+                if prod_mat is not None:
+                    if res is None:
+                        res = prod_mat
+                        cnt += 1
+                    else:
+                        res = res + prod_mat
+                        cnt += 1
+        res = res/cnt
+        return res        
+        
 def cls_scors(cls,train_x,train_y,valid_x,valid_y,label = None):
     '''
     对分类模型进行评价
     '''
+    print('----- 分类模型评分 -----')
     if label is not None:
         train_x_input = train_x.drop(label,axis = 1)
         valid_x_input = valid_x.drop(label,axis = 1)

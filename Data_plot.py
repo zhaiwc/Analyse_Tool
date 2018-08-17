@@ -474,9 +474,9 @@ def plot_confusion_matrix(y_truth, y_predict, cmap=plt.cm.Blues):
 
     for x in range(len(cm)): 
         for y in range(len(cm)):
-            plt.annotate(cm[x, y], xy=(x, y), horizontalalignment='center', verticalalignment='center')
+            plt.annotate(cm[y, x], xy=(x, y), horizontalalignment='center', verticalalignment='center')
 
-    plt.xlabel('True label') 
-    plt.ylabel('Predicted label')  
+    plt.ylabel('True label') 
+    plt.xlabel('Predicted label')  
     return plt
 

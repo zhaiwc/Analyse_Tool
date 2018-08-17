@@ -372,11 +372,12 @@ class Check_Outlier():
             self.upline = x.mean() + self.muti * x.std()
             self.dnline = x.mean() - self.muti * x.std()
         elif self.method == 'tukey':
+            x = x.fillna(method = 'ffill')
             n25 = pd.DataFrame(np.percentile(x,25,axis=0),index = x.columns)
             n75 = pd.DataFrame(np.percentile(x,75,axis=0),index = x.columns)
             self.upline = n75 + self.muti * ( n75 - n25 )
             self.dnline = n25 - self.muti * ( n75 - n25 )
-            
+   
         x[x>self.upline] = np.nan
         x[x<self.dnline] = np.nan
         

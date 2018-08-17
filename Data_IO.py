@@ -11,6 +11,7 @@ json输入输出
 import pandas as pd
 import json
 import cv2
+import pdb
 
 def get_data(file_path,**kw):
     file_type = file_path.split('.')[1]
@@ -42,8 +43,8 @@ def to_file(data,file_name,file_path = None, file_type = 'xls'):
     print('saving success ...')
 
 def json2py(json_str):
-    
-    json_dict = json.loads(json_str)
+    print(json_str)
+    json_dict = json.loads(json_str,encoding='utf-8')
     return json_dict
 
 def py2json(obj):
@@ -51,6 +52,11 @@ def py2json(obj):
     if type(obj) == pd.DataFrame or type(obj) == pd.Series:
         json_str = obj.to_json()
     else:
+        for key in obj.keys():
+            if type(obj[key]) == pd.DataFrame or type(obj[key]) == pd.Series:
+                jsonstr = obj[key].to_json()
+                json_dict = json.loads(jsonstr)
+                obj[key] = json_dict
         json_str = json.dumps(obj)
         
     return json_str
