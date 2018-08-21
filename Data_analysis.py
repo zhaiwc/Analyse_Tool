@@ -179,7 +179,6 @@ def linear_corr_analysis(data,y = None,columnslist = None,label_col = None,
     相关性分析，默认前面为x,最后一列为y。
     分别求每一列x与y的 线性相关，秩相关，剔除异常相关 等系数，进行绝对值排序
     分label 分别求每个label下 各列与y的相关系数
-    
     '''
     if y is not None:
         data = pd.concat([data,y],axis=1)

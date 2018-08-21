@@ -9,8 +9,6 @@ import numpy as np
 import pdb
 
 import sklearn.ensemble as esb
-#from sklearn.ensemble import RandomForestRegressor,AdaBoostRegressor,GradientBoostingRegressor
-#from sklearn.ensemble import RandomForestClassifier,GradientBoostingClassifier
 from sklearn.decomposition import PCA,FactorAnalysis,KernelPCA,SparsePCA,TruncatedSVD,IncrementalPCA
 from sklearn.discriminant_analysis import LinearDiscriminantAnalysis as LDA
 from sklearn.model_selection import  GridSearchCV,cross_val_score
@@ -19,7 +17,7 @@ from sklearn.metrics import make_scorer,mean_squared_error,roc_auc_score, accura
 from sklearn import linear_model
 
 from xgboost import XGBRegressor,XGBClassifier
-from Analysis_Tool import Data_plot
+from Analysis_Tool import Data_plot,Data_Preprocess
 
 class Feature_Reduction():
     '''
@@ -111,12 +109,15 @@ class Feature_Reduction():
         wight_comp:由其他模型计算得到的因子重要性
         根据wight_comp * transformmat 计算原始因子重要性
         '''
-        if self.method in ['pca','ipca']:
+        if self.method in ['pca','fa','spca','tsvd','ipca']:
             weight = np.array(wight_comp).reshape(1,-1)
             trans_mat = self.dr_model.components_
+#            pdb.set_trace()
             res = pd.DataFrame(np.dot(weight,trans_mat),columns = self.data_col,index = ['importance'])
             res = abs(res.T).sort_values('importance')
-        return res.iloc[-Top_N:]
+            return res.iloc[-Top_N:]
+        else:
+            return None
     
     def plot_score_scatter(self,data,label_col = None,is_plot = True):
         dr_data = self.dr_model.transform(data)
@@ -139,24 +140,27 @@ class Feature_Reduction():
         return plot_data
     
     def plot_loading_scatter(self,data,label_col = None,is_plot = True):
-        comp_mat = self.dr_model.components_.T[:,0:2]
-        plot_data = pd.DataFrame(comp_mat,index = data.columns,columns = ['comp1','comp2'])
-         
-         #画x,y轴
-        max_x = max(comp_mat[:,0].std()*3,comp_mat[:,0].max())
-        max_y = max(comp_mat[:,1].std()*3,comp_mat[:,1].max())
-        x_mat = pd.DataFrame([[max_x,0],[-max_x,0]])
-        y_mat = pd.DataFrame([[0,-max_y],[0,max_y]])
-        
-        if is_plot:
-            plt = Data_plot.plot_scatter(plot_data,label_col = label_col,issns = False)
-            plt = Data_plot.plot_line(x_mat,c=['b--'])
-            plt = Data_plot.plot_line(y_mat,c=['b--'])
-            plt.xlabel('pca1')
-            plt.ylabel('pca2')
-            plt.title('pca1 vs pca2 loadings')
-            plt.show()
-        return plot_data
+        if self.method in ['pca','fa','spca','tsvd','ipca']:
+            comp_mat = self.dr_model.components_.T[:,0:2]
+            plot_data = pd.DataFrame(comp_mat,index = data.columns,columns = ['comp1','comp2'])
+             
+             #画x,y轴
+            max_x = max(comp_mat[:,0].std()*3,comp_mat[:,0].max())
+            max_y = max(comp_mat[:,1].std()*3,comp_mat[:,1].max())
+            x_mat = pd.DataFrame([[max_x,0],[-max_x,0]])
+            y_mat = pd.DataFrame([[0,-max_y],[0,max_y]])
+            
+            if is_plot:
+                plt = Data_plot.plot_scatter(plot_data,label_col = label_col,issns = False)
+                plt = Data_plot.plot_line(x_mat,c=['b--'])
+                plt = Data_plot.plot_line(y_mat,c=['b--'])
+                plt.xlabel('pca1')
+                plt.ylabel('pca2')
+                plt.title('pca1 vs pca2 loadings')
+                plt.show()
+            return plot_data
+        else:
+            return None
         
     def plot_cum_std(self,data,n = 30):
         '''
@@ -192,14 +196,15 @@ class Filter_Selection():
             #互信息
             mi = []
             for col in x.columns:
-                mi.append(mutual_info_score(x.loc[:,col],y))
-            mi = pd.DataFrame(mi,index = x.columns).sort_values()
+                temp_x = x.loc[:,[col]].values.reshape(len(y),)
+                temp_y = y.values.reshape(len(y),)
+                mi.append(mutual_info_score(temp_x,temp_y))
+            mi = pd.DataFrame(mi,index = x.columns,columns = ['mi']).sort_values('mi')
             self.choose_col = mi.index[-self.TopN:]
         
             
     def transform(self,x):
-        
-        transform_x = x.loc[:,self.choose_col].iloc[:-1,-1]
+        transform_x = x.loc[:,self.choose_col]
         return transform_x
 
 class Reg_Embedded_Selection():
@@ -207,18 +212,19 @@ class Reg_Embedded_Selection():
         self.method = method
         self.parameters = None
         self.select_col = None
-        self.TopN = TopN
+        self.Top_N = TopN
         
     def set_parameters(self,parameters = None):
         if parameters is None: #用户不传参数，则使用默认参数
             if self.method == 'ElasticNet':
-                self.parameters = {'alpha':[1,],'l1_ratio ':[0.5,]}
+                self.parameters = {'alpha':[1,],
+                                   "l1_ratio":[0.5,]}
                 
             elif self.method == 'rf':
                 self.parameters = {"max_depth": [5],
                         "n_estimators": [200],}
                 
-            elif self.method == 'adaboost':
+            elif self.method == 'adaBoost':
                 self.parameters = {'n_estimators':[200],
                                    'learning_rate':[0.1],}
                 
@@ -236,6 +242,7 @@ class Reg_Embedded_Selection():
     
     def fit(self,x,y):
         
+        x_col = x.columns
         scoring = {"mse": make_scorer(mean_squared_error),}
         
         x = x.values
@@ -247,8 +254,7 @@ class Reg_Embedded_Selection():
         if self.method == 'ElasticNet':
             reg = GridSearchCV(linear_model.ElasticNet(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='mse')
             reg.fit(x,y)
-            
-            coef = pd.DataFrame(reg.best_estimator_.coef_).sort_values()
+            coef = pd.DataFrame(reg.best_estimator_.coef_,index = x_col,columns = ['coefs']).sort_values('coefs')
             self.select_col = coef.index[-self.TopN:]
         
         elif self.method == 'rf':
@@ -256,7 +262,7 @@ class Reg_Embedded_Selection():
             reg.fit(x,y)
             
             importances = reg.best_estimator_.feature_importances_
-            Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances']).sort_values('importances')
+            Rank = pd.DataFrame(importances,index=x_col ,columns = ['importances']).sort_values('importances')
             self.select_col = list(Rank.index[-self.Top_N:])
         
         elif self.method == 'adaBoost':
@@ -264,7 +270,7 @@ class Reg_Embedded_Selection():
             reg.fit(x,y)
             
             importances = reg.best_estimator_.feature_importances_
-            Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances']).sort_values('importances')
+            Rank = pd.DataFrame(importances,index=x_col,columns = ['importances']).sort_values('importances')
             self.select_col = list(Rank.index[-self.Top_N:])
         
         elif self.method == 'gbm':
@@ -272,7 +278,7 @@ class Reg_Embedded_Selection():
             reg.fit(x,y)
             
             importances = reg.best_estimator_.feature_importances_
-            Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances']).sort_values('importances')
+            Rank = pd.DataFrame(importances,index=x_col,columns = ['importances']).sort_values('importances')
             self.select_col = list(Rank.index[-self.Top_N:])
             
         elif self.method == 'xgb':
@@ -280,12 +286,12 @@ class Reg_Embedded_Selection():
             reg.fit(x,y)
             
             importances = reg.best_estimator_.feature_importances_
-            Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances']).sort_values('importances')
+            Rank = pd.DataFrame(importances,index=x_col,columns = ['importances']).sort_values('importances')
             self.select_col = list(Rank.index[-self.Top_N:])
             
             
     def transform(self,x):
-        transform_x = x.loc[:,self.choose_col].iloc[:-1,-1]
+        transform_x = x.loc[:,self.select_col]
         return transform_x
     
 class Cls_Embedded_Selection():
@@ -298,13 +304,13 @@ class Cls_Embedded_Selection():
     def set_parameters(self,parameters = None):
         if parameters is None: #用户不传参数，则使用默认参数
             if self.method == 'logistic':
-                self.parameters = {'penalty':['l1',],'C ':[1]}
+                self.parameters = {'penalty':['l1',],'C':[1]}
                 
             elif self.method == 'rf':
                 self.parameters = {"max_depth": [5],
                         "n_estimators": [200],}
                 
-            elif self.method == 'adaboost':
+            elif self.method == 'adaBoost':
                 self.parameters = {'n_estimators':[200],
                                    'learning_rate':[0.1],}
                 
@@ -341,7 +347,7 @@ class Cls_Embedded_Selection():
             Rank = pd.DataFrame(importances,index=x.columns,columns = ['importances']).sort_values('importances')
             self.select_col = list(Rank.index[-self.Top_N:])
         
-        elif self.method == 'adaboost':
+        elif self.method == 'adaBoost':
             clf = GridSearchCV(esb.AdaBoostClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='roc')
             clf.fit(x,y)
             
@@ -369,58 +375,37 @@ class Cls_Embedded_Selection():
         transform_x = x.loc[:,self.choose_col].iloc[:-1,-1]
         return transform_x
         
-def dim_reduction(data,method = 'pca',n_comp = None):
-    if method =='pca':
-        if n_comp is None:
-            pca = PCA(svd_solver= 'full',n_components = 'mle')
-            pca.fit(data)
-            
-            res = pca.transform(data)
-        else:
-            pdb.set_trace()
-            pca = PCA(n_components=n_comp)
-            pca.fit(data)
-            res = pca.transform(data)
-            dr = pca
-            
-    elif method == 'kpca':
-        if n_comp is None:
-            n_cmp_list = [2,3,4]  + list(range(5,data.shape[1],5))
-            parameters = {
-                            "n_components": n_cmp_list,
-                            "kernel": ['rbf', 'poly'],
-                        }
-            
-            scoring = {
-                        "cross_val": make_scorer(cross_val_score),
-                        }
-            kpca = GridSearchCV(KernelPCA(),param_grid=parameters,cv=5,scoring=scoring,refit ='cross_val')
-            res = kpca.fit_transform(data)
-            dr = kpca
-            
-        else:
-            kpca = KernelPCA(n_components = n_comp,kernel='rbf',gama = 10)
-            res = kpca.fit_transform(data)
-            dr = kpca
-            
-    elif method =='fa':
-        if n_comp is None:
-            n_cmp_list = [2,3,4]  + list(range(5,data.shape[1],5))
-            parameters = {
-                            "n_components": n_cmp_list,
-                        }
-            
-            scoring = {
-                        "cross_val": make_scorer(cross_val_score),
-                        }
-            fa = GridSearchCV(FactorAnalysis(),param_grid=parameters,cv=5,scoring=scoring,refit ='cross_val')
-            res = fa.fit_transform(data)
-            dr = fa
-            
-        else:
-            fa = FactorAnalysis(n_components = n_comp)
-            res = fa.fit_transform(data)
-            dr = fa
-            
-    return res,dr
+class Feature_Mining():
+    def __init__(self,method = 'poly',TopN = 10):
+        self.method = method
+        self.TopN = TopN
+        #相关性筛选
+        self.Filter_Selection = None
+        #数据变换
+        self.DChange = None
+        #数据标准化
+        self.Standard = None
+        
+    def fit(self,x,y):
+        if self.method == 'poly':
+            FS = Filter_Selection('pearson',TopN = self.TopN)
+            FS.fit(x,y)
+            new_x = FS.transform(x)
+            Dchange = Data_Preprocess.Data_Change('poly')
+            Dchange.fit(new_x)
+            DChange_new_x = Dchange.transform(new_x)
+            standard = Data_Preprocess.Data_Change('avgstd')
+            standard.fit(DChange_new_x)
 
+            #赋值
+            self.Filter_Selection = FS
+            self.DChange = Dchange
+            self.Standard = standard
+    
+    def transform(self,x):
+        FS_x = self.Filter_Selection.transform(x)
+        DChange_FS_x = self.DChange.transform(FS_x)
+        res = self.Standard.transform(DChange_FS_x)
+        res = pd.DataFrame(res.iloc[:,self.TopN:].values,index = x.index,columns = res.columns[self.TopN:])
+        res = pd.concat([x,res],axis = 1)
+        return res

@@ -149,7 +149,8 @@ class Data():
         if reg_type == 'single':
             reg = Data_model_building.reg_model(reg_model[0],isGridSearch=isGridSearch)
             if parameter is not None:
-                reg.set_parameters(parameter = parameter)
+                reg.set_parameters(parameters = parameter)
+#            pdb.set_trace()
             reg.fit(X_train,y_train)
             Data_model_building.reg_score(reg,X_train,y_train, X_test, y_test)
             

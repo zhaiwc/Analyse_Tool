@@ -4,8 +4,8 @@ Created on Fri Mar 30 11:21:11 2018
 
 @author: zhaiweichen
 """
-from Analysis_Tool import Data_plot,Data_Preprocess,Data_analysis,Data_feature_reduction
-from sklearn import linear_model,tree,svm
+from Analysis_Tool import Data_plot,Data_Preprocess,Data_feature_reduction
+from sklearn import linear_model,tree,svm,neural_network 
 from sklearn.cross_decomposition import PLSRegression
 from sklearn.neighbors import KNeighborsClassifier,KNeighborsRegressor
 from sklearn.model_selection import  GridSearchCV,train_test_split
@@ -116,23 +116,27 @@ class reg_model():
                     self.parameters = {"C": [0.1,1,10,100],
                                        "epsilon": [10,1,0.1,0.01]}
                 elif self.method == 'knn':
-                    self.parameters ={'n_neighbors':[3,5,7]}
+                    self.parameters = {'n_neighbors':[3,5,7]}
                 elif self.method == 'dt':
-                    self.parameters ={'max_depth' :[3,5,7]}
+                    self.parameters = {'max_depth' :[3,5,7]}
                 elif self.method == 'rf':
-                    self.parameters ={"max_depth": [3, 5, 7],
+                    self.parameters = {"max_depth": [3, 5, 7],
                                       "n_estimators": [300,500,1000],}
                 elif self.method == 'adaBoost':
-                    self.parameters ={ "learning_rate": [0.01, 0.1],
+                    self.parameters = { "learning_rate": [0.01, 0.1],
                                       "n_estimators": [500,1000],}
                 elif self.method == 'gbm':
-                    self.parameters ={"max_depth": [3, 5],
+                    self.parameters = {"max_depth": [3, 5],
                                       "learning_rate": [0.01, 0.1],
                                       "n_estimators": [500,1000],}
                 elif self.method == 'xgb':
-                    self.parameters ={"max_depth": [3, 5],
+                    self.parameters = {"max_depth": [3, 5],
                                       "learning_rate": [0.01, 0.1],
                                       "n_estimators": [500,1000],}
+                elif self.method == 'bp':
+                    self.parameters = {'activation':['relu'],
+                                       'hidden_layer_sizes' : [(10,),(20,),(100,)],
+                                       'max_iter': [200000],}
             else:
                 if self.method == 'linear':
                     self.parameters = None
@@ -166,6 +170,11 @@ class reg_model():
                     self.parameters ={"max_depth": [5],
                                       "learning_rate": [0.1],
                                       "n_estimators": [500],}
+                elif self.method == 'bp':
+                    self.parameters = {
+                                       'activation':['relu'],
+                                       'hidden_layer_sizes' :[(10,),],
+                                       'max_iter': [200000],}
                     
         else:#用户传参数，则以用户参数为准
             self.parameters = parameters
@@ -175,6 +184,7 @@ class reg_model():
         x_train = np.array(x)
         y_train = np.array(y).reshape(y.shape[0],)
         self.factor_name = list(x.columns)
+        
         if self.parameters is None:
             self.set_parameters()
         
@@ -228,6 +238,10 @@ class reg_model():
         elif self.method == 'xgb': 
             self.reg_model = GridSearchCV(XGBRegressor(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='mse')
             self.reg_model.fit(x_train,y_train)
+        
+        elif self.method =='bp':
+            self.reg_model = GridSearchCV(neural_network.MLPRegressor(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='mse')
+            self.reg_model.fit(x_train,y_train)
             
     def predict(self,x):
         #模型预测
@@ -236,7 +250,7 @@ class reg_model():
     
     def get_vip(self,isplot = True):
         #计算关键因子，
-        if self.method in ['svr','knn','dt']:
+        if self.method in ['svr','knn','dt','bp']:
             #上述算法没有办法衡量重要因子
             return None
         else:
@@ -683,6 +697,10 @@ class cls_model():
                     self.parameters ={"max_depth": [3, 5],
                                       "learning_rate": [0.01, 0.1],
                                       "n_estimators": [500,1000],}
+                elif self.method == 'bp':
+                    self.parameters = {'activation':['logistic','tanh','relu'],
+                                       'hidden_layer_sizes' : [(10,),(20,),(100,)],
+                                       'max_iter': [200000],}
             else:
                 if self.method == 'logistic':
                     self.method == {'penalty':['l2'],
@@ -708,6 +726,10 @@ class cls_model():
                     self.parameters ={"max_depth": [5],
                                       "learning_rate": [0.1],
                                       "n_estimators": [500],}
+                elif self.method == 'bp':
+                    self.parameters = {'activation':['logistic'],
+                                       'hidden_layer_sizes' : [(10,)],
+                                       'max_iter': [200000],}
                     
         else:#用户传参数，则以用户参数为准
             self.parameters = parameters
@@ -716,6 +738,7 @@ class cls_model():
         x_train = np.array(x)
         y_train = np.array(y).reshape(len(y))
         self.factor_name = list(x.columns)
+#        
         if self.parameters is None:
             self.set_parameters()
         
@@ -753,6 +776,9 @@ class cls_model():
             self.cls_model = GridSearchCV(XGBClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='acc')
             self.cls_model.fit(x_train,y_train)
             
+        elif self.method == 'bp':
+            self.cls_model = GridSearchCV(neural_network.MLPClassifier(),param_grid=self.parameters,cv=5,scoring=scoring,refit ='acc')
+            self.cls_model.fit(x_train,y_train)
     
     def predict(self,x):
         #模型预测
@@ -771,7 +797,7 @@ class cls_model():
     def get_vip(self,isplot=True):
         #计算关键因子重要性
         col_name = 'variable importance'
-        if self.method in ['knn','dt','svm']:
+        if self.method in ['knn','dt','svm','bp']:
             res = None
             
         else:
