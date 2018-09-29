@@ -190,7 +190,7 @@ class reg_model():
         
         scoring = {"mse": make_scorer(mean_squared_error),}
         
-        self.set_parameters
+        self.set_parameters()
         if self.method == 'linear':
             self.reg_model = linear_model.LinearRegression()     
             self.reg_model.fit(x_train,y_train)
@@ -256,7 +256,7 @@ class reg_model():
         else:
             col_name = 'variable importance'
             if self.method in ['linear'] :
-                var_importance = pd.DataFrame(abs(self.reg_model.coef_),index = [col_name] ,columns = self.factor_name)
+                var_importance = pd.DataFrame(abs(self.reg_model.coef_),columns = [col_name] , index= self.factor_name)
             elif self.method in ['ridge','lasso','ElasticNet','pls']:
                 coef = self.reg_model.best_estimator_.coef_.reshape(-1,1)
                 var_importance = pd.DataFrame(abs(coef),columns = [col_name] ,index = self.factor_name)
@@ -264,14 +264,16 @@ class reg_model():
     #            var_importance = None
                 coef = self.reg_model.best_estimator_.feature_importances_.reshape(-1,1)
                 var_importance = pd.DataFrame(abs(coef),columns = [col_name] ,index = self.factor_name)
-            res = var_importance.sort_values(col_name)
+            res = var_importance.sort_values(col_name,ascending = False)
             #对因子重要性进行归一化。
             Dchange = Data_Preprocess.Data_Change('minmax')
             Dchange.fit(res)
             res = Dchange.transform(res)
             #画条形图
+
             if isplot:
-                plt = Data_plot.plot_bar_analysis(res)
+
+                plt = Data_plot.plot_bar_analysis(res,Top=15)
                 plt.title('variable importance')
                 plt.show()
             return res
@@ -536,7 +538,7 @@ class reg_stack_muti():
         
         return res
           
-def reg_score(reg,train_x,train_y,valid_x,valid_y,label = None,is_plot = True,
+def reg_score(reg_input,train_x,train_y,valid_x,valid_y,label = None,is_plot = True,
               y_change = None,**kw):
     '''
     对回归模型进行评价
@@ -553,11 +555,13 @@ def reg_score(reg,train_x,train_y,valid_x,valid_y,label = None,is_plot = True,
     else:
         train_x_input = train_x
         valid_x_input = valid_x
+#    pdb.set_trace()
     if y_change is None:
-        train_pred_y = reg.predict(train_x_input)
+        train_pred_y = reg_input.predict(train_x_input)
     else:
-        train_pred_y = y_change.change_back(pd.DataFrame(reg.predict(train_x_input),columns=['train_pred_y'],index = train_y.index))
+        train_pred_y = y_change.change_back(pd.DataFrame(reg_input.predict(train_x_input),columns=['train_pred_y'],index = train_y.index))
         train_y = y_change.change_back(train_y)
+    
     train_mse = mean_squared_error(train_y,train_pred_y)
     train_r2 = r2_score(train_y,train_pred_y)
     train_pred_y = pd.DataFrame(train_pred_y,columns=['train_pred_y'],index = train_y.index)
@@ -578,9 +582,9 @@ def reg_score(reg,train_x,train_y,valid_x,valid_y,label = None,is_plot = True,
     print('训练集：mse = {} , r2 = {}'.format(train_mse,train_r2))
     
     if y_change is None:
-        valid_pred_y = reg.predict(valid_x_input)
+        valid_pred_y = reg_input.predict(valid_x_input)
     else:
-        valid_pred_y = y_change.change_back(pd.DataFrame(reg.predict(valid_x_input),columns=['valid_pred_y'],index = valid_y.index))
+        valid_pred_y = y_change.change_back(pd.DataFrame(reg_input.predict(valid_x_input),columns=['valid_pred_y'],index = valid_y.index))
         valid_y = y_change.change_back(valid_y)
     valid_mse = mean_squared_error(valid_y,valid_pred_y)
     valid_r2 = r2_score(valid_y,valid_pred_y)
@@ -907,7 +911,7 @@ class cls_model_stack():
             return res
 
 class cls_model_stack_muti():
-    def __init__(self,listModelName,isGridSearch = True , dict_para = {},n_model = 1,
+    def __init__(self,listModelName,isGridSearch = True , dict_para = {},n_model = 1,Multiple =3,
                  benchmark = 'all',boostrap = True,ratioFactorSampling = 1,KPI = 'roc',threshold = None,TopN = 3,stack_method = 'avg'):
         self.listModelName = listModelName
         self.isGridSearch = isGridSearch
@@ -920,6 +924,7 @@ class cls_model_stack_muti():
         self.threshold = threshold
         self.TopN = TopN
         self.stack_method = stack_method
+        self.Multiple = Multiple
         
         #缺省参数
         self.train_model = defaultdict(list)
@@ -932,9 +937,9 @@ class cls_model_stack_muti():
         因子抽样：可选，默认不抽因子
         '''
         if self.ratioFactorSampling == 1:#不筛选因子
-            res_x ,res_y = cls_sample_balance(x,y,benchmark = self.benchmark,boostrap = self.boostrap)
+            res_x ,res_y = cls_sample_balance(x,y,benchmark = self.benchmark,boostrap = self.boostrap,Multiple = self.Multiple)
         elif  self.ratioFactorSampling > 0 and self.ratioFactorSampling < 1: #按比例筛选因子
-            res_x ,res_y = cls_sample_balance(x,y,benchmark = self.benchmark,boostrap = self.boostrap)
+            res_x ,res_y = cls_sample_balance(x,y,benchmark = self.benchmark,boostrap = self.boostrap,Multiple = self.Multiple)
             res_x = res_x.sample(res_x.shape[1] * self.ratioFactorSampling,axis = 1)
         return res_x,res_y
     
@@ -975,12 +980,15 @@ class cls_model_stack_muti():
         '''
         拟合：
         '''
-        basic_cls = ['logistic','knn']
+        basic_cls = ['logistic','knn','svm','dt','rf','adaBoost','gbm','xgb','bp']
         X_train, X_test, y_train, y_test = split_train_test(x,y,test_size=0.1)
         for model_name in self.listModelName:
             if model_name in basic_cls:
                 
                 #模型预训练
+                print('当前训练模型： {} '.format(model_name))
+                start =time.clock()
+                
                 pre_cls = cls_model(model_name,isGridSearch = self.isGridSearch)
                 
                 if model_name in self.dict_para.keys():
@@ -991,6 +999,10 @@ class cls_model_stack_muti():
                 pre_cls.fit(x,y)
                 best_cls_para = pre_cls.best_parameters
                 
+                end = time.clock()
+                print('优化参数模型，耗时： {} s '.format(end - start))
+                start = end
+                
                 model_list = []
                 for i in range(self.n_model):
                 #一共生成n_model个模型，先进行样本抽样 
@@ -1000,9 +1012,13 @@ class cls_model_stack_muti():
                     #模型拟合
                     cls.fit(X_train_sampling,y_train_sampling)
                     model_list.append(cls) 
+                    end = time.clock()
+                    print('第  {} 个模型，耗时： {} s '.format(i+1,end - start))
+                    start = end
                 #根据筛选条件
+                print('进行模型筛选 {} of {} '.format(self.TopN,self.n_model))
                 self.train_model[model_name] = self.filtrate(model_list,X_test,y_test)
-                
+                 
                 #计算验证集acc
                 sub_model_res = []
                 for sub_model in self.train_model[model_name]:
@@ -1027,7 +1043,7 @@ class cls_model_stack_muti():
 #            sub_model_res = []
             for sub_model in self.train_model[model_name]:
                 model_res.append(pd.DataFrame(sub_model.predict(x)))
-                
+
         #模型结果投票融合
         model_res = pd.concat(model_res,axis = 1)
         for idx in range(len(model_res)):
@@ -1078,8 +1094,12 @@ class cls_model_stack_muti():
                     else:
                         res = res + prod_mat
                         cnt += 1
-        res = res/cnt
-        return res        
+        if res is not None:
+            res = res/cnt
+            return res
+        else:
+            return None
+                    
         
 def cls_scors(cls,train_x,train_y,valid_x,valid_y,label = None):
     '''
@@ -1101,13 +1121,16 @@ def cls_scors(cls,train_x,train_y,valid_x,valid_y,label = None):
     y_pred = cls.predict(train_x)
     y_score = cls.predict_proba(train_x)
     y_one_hot = label_binarize(train_y, np.arange(n_class))
-    if n_class > 2:
-        if y_score is not None:
-            train_auc = roc_auc_score(y_one_hot, y_score, average='micro')
+    try:
+        if n_class > 2:
+            if y_score is not None:
+                train_auc = roc_auc_score(y_one_hot, y_score, average='micro')
+            else:
+                train_auc = -1
         else:
-            train_auc = -1
-    else:
-        train_auc = roc_auc_score(train_y,y_pred)
+            train_auc = roc_auc_score(train_y,y_pred)
+    except:
+        train_auc = -1
     train_pred_y = pd.DataFrame(train_pred_y,columns=['train_pred_y'],index = train_y.index)
     
     plt = Data_plot.plot_confusion_matrix(train_y,train_pred_y)   
@@ -1122,36 +1145,49 @@ def cls_scors(cls,train_x,train_y,valid_x,valid_y,label = None):
     y_valid_score = cls.predict_proba(valid_x)
     y_valid_one_hot = label_binarize(valid_y, np.arange(n_class))
     
-    if n_class > 2:
-        if y_score is not None:
-            valid_auc = roc_auc_score(y_valid_one_hot,y_valid_score)
+    try:
+        if n_class > 2:
+            if y_score is not None:
+                valid_auc = roc_auc_score(y_valid_one_hot,y_valid_score)
+            else:
+                valid_auc = -1
         else:
-            valid_auc = -1
-    else:
-        valid_auc = roc_auc_score(valid_y,y_valid_pred)    
+            valid_auc = roc_auc_score(valid_y,y_valid_pred)    
+    except:
+        valid_auc = -1        
+            
     valid_pred_y = pd.DataFrame(valid_pred_y,columns=['valid_pred_y'],index = valid_y.index)
     
     plt = Data_plot.plot_confusion_matrix(valid_y,valid_pred_y)   
     plt.show()
     print('验证集：acc = {} , auc = {}'.format(valid_acc,valid_auc))
+
+class clu_model():
+    def __init__(self,method = 'kmeans'):
+        self.method = method
+        self.clu_model = None
+        self.para = None
+        
+    def fit(self,x,para = None):
+        if self.method == 'kmeans':
+            self.clu_model = KMeans(para)
+            self.para = para
+            self.clu_model.fit(x)
+             
+        elif self.method == 'DBSCAN':#密度聚类
+            self.clu_model = DBSCAN(para)
+            self.para = para
+            self.clu_model.fit(x)
+        
+        elif self.method =='Agg':#凝聚聚类
+            self.clu_model = AgglomerativeClustering(para)
+            self.para = para
+            self.clu_model.fit(x)
+            
+    def predict(self,x):
+        return self.clu_model.predict(x)
     
-def clu_model(x,method = 'kmeans',parameters = None):
-    if method == 'kmeans':
-        clu = KMeans(parameters)
-        clu.fit(x)
-        
-    elif method == 'DBSCAN':#密度聚类
-        clu = DBSCAN(parameters)
-        clu.fit(x)
-        
-    elif method =='Agg':#凝聚聚类
-        clu = AgglomerativeClustering(parameters)
-        clu.fit(x)
-        
-    return clu
-
-
-
+    
 class pca_clu_reg():
     '''
     实现降维，聚类，再回归的方式
@@ -1161,58 +1197,62 @@ class pca_clu_reg():
         self.dim = para['dim'] 
         #降维的模型，PCA
         self.dr_model = None
-        #聚类类数
-        self.n_clu = para['n_clu']
+        #聚类类数,默认kmeans
         self.clu_model = None
+        self.n_clu = para['n_clu']
+        
         self.method = para['method']
+        self.is_stack = para['isstack']
         self.reg_model = {}
-        self.reg_para = {}    
+ 
         
     def fit(self,x,y):
         #降维
-        x_dr,dr = Data_feature_reduction.dim_reduction(x,n_comp = self.dim)
-        #聚类
-#        pdb.set_trace()
-        clu = KMeans(n_clusters=self.n_clu).fit(x_dr[:,[0,1]])
-        clu_label = clu.predict(np.array(x_dr[:,[0,1]]))     
-        clu_label = pd.DataFrame(clu_label,columns = ['label'],index = x.index)
-
-        self.dr_model = dr
-        self.clu_model = clu
+        self.dr_model = Data_feature_reduction.Feature_Reduction(n_comp = self.dim)
+        self.dr_model.fit(x)
         
-        for i in range(self.n_clu):
-            x_dr,dr = Data_feature_reduction.dim_reduction(x,n_comp = self.dim)
-            x_dr = pd.DataFrame(x_dr,index = x.index)
-            clu_data = pd.concat([x_dr,clu_label],axis = 1)
-            
-            x_clu = clu_data[clu_data.label ==i]
-            y_clu = y.loc[x_clu.index,:]
+        x_dr = self.dr_model.transform(x).iloc[:,0:2]
+        
+        #聚类
+        self.clu_model = clu_model()
+        self.clu_model.fit(x_dr,self.n_clu)
+        clu_label = self.clu_model.predict(x_dr)  
+        clu_label = pd.DataFrame(clu_label,columns = ['label'],index = x.index)
+        
+        #每一类，进行回归拟合
+        for i in range(self.n_clu):            
+            x_clu = x.loc[clu_label[clu_label==1].dropna().index,:]
+            y_clu = y.loc[clu_label[clu_label==1].dropna().index,:]
             #创建模型
-            reg,para = reg_model(x_dr.loc[x_clu.index,:],y_clu,method= self.method)
+            if self.is_stack:
+                reg = reg_stack_muti(self.method,n_model=3,TopN=1)
+                reg.fit(x_clu,y_clu)
+            else:
+                reg = reg_model(self.method)
+                reg.fit(x_clu,y_clu)
             self.reg_model[i] = reg
-            self.reg_para[i] = para
+
             
     def predict(self,x):
-        dr = self.dr_model
-        clu = self.clu_model
         #降维
-        x_dr = dr.transform(x)
-        x_dr = pd.DataFrame(x_dr)
+        x_dr = self.dr_model.transform(x)
+
         #聚类
-        clu_label = clu.predict(x_dr.iloc[:,[0,1]])
-        clu_label = pd.DataFrame(clu_label,columns = ['label'])
+        clu_label = self.clu_model.predict(x_dr.iloc[:,[0,1]])
+        clu_label = pd.DataFrame(clu_label,columns = ['label'],index = x.index)
         
-        clu_data = pd.concat([x_dr,clu_label],axis = 1)
+#        clu_data = pd.concat([x_dr,clu_label],axis = 1)
         res = []
         for i in range(self.n_clu):
-            x_clu = clu_data[clu_data.label ==i]
+            x_clu = x.loc[clu_label[clu_label==i].dropna().index,:]
             if len(x_clu):
                 reg_model = self.reg_model[i]
-                y_pred = reg_model.predict(np.array(x_dr.loc[x_clu.index,:]))
+                y_pred = reg_model.predict(x_clu)
                 y_pred = pd.DataFrame(y_pred,index = x_clu.index)
                 res.append(y_pred)
         res = pd.concat(res).sort_index()
         res = res.rename(columns = {res.columns[0]:'y_pred'})
+        
         return np.array(res)
             
 

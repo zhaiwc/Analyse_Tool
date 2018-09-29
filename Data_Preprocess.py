@@ -235,9 +235,9 @@ class Data_Encoding():
         
         if self.method =='order':
             for col in self.columnlist:
-                
                 Encoding = preprocessing.LabelEncoder()
-                Encoding.fit(strdata[[col]])
+                
+                Encoding.fit(strdata[[col]].values)
                 self.encoding[col] = Encoding
             
         elif self.method == 'onehot':#先转order,再转Oht
@@ -277,7 +277,8 @@ class Data_Encoding():
             for key in self.encoding.keys():
                 temp = self.encoding[key]['order'].transform(codedata[[key]])
                 trans_data = self.encoding[key]['Oht'].transform(temp.reshape(-1,1)).toarray()
-                trans_data = pd.DataFrame(trans_data,index = codedata.index)
+                col_list = [key+'_'+str(i) for i in range(trans_data.shape[1])]
+                trans_data = pd.DataFrame(trans_data,index = codedata.index,columns = col_list)
                 codedata = codedata.drop(key,axis=1)
                 codedata = pd.concat([codedata,trans_data],axis=1)
 

@@ -160,6 +160,7 @@ def autocorr_analysis(data,columnslist = None,label_col =None,
         ths_data = data[columnslist]        
         autocorr_df,drop_col = _autocorr(ths_data,threshold = threshold)
         if isplot:
+            ths_data = pd.concat([ths_data,label_col],axis=1)
             Data_plot.plot_autocorr(ths_data,columnslist,label_col=label_col)
 
         for key,group in data.groupby(label_col):
@@ -575,12 +576,18 @@ def reduce_dim_cluster(x,n_cluster = 2, dim = 2):
         #标准化
 #        x,scaler = Data_Preprocess.data2avgstd(x)
         #降维
-        x_dr,dr = Data_feature_reduction.dim_reduction(x,n_comp = dim)
+        dr = Data_feature_reduction.Feature_Reduction(dim)
+        dr.fit(x)
+        x_dr = dr.transform(x).iloc[:,0:2]
         
         #聚类
         clu = KMeans(n_clusters=n_cluster).fit(x_dr)
         clu_label = clu.predict(np.array(x_dr))
-        x_dr = pd.DataFrame(x_dr,columns = ['x1','x2'])
+#        pdb.set_trace()
+        if dim ==2:
+            x_dr = pd.DataFrame(x_dr.values,columns = ['x1','x2'],index = x_dr.index)
+        else:
+            x_dr = pd.DataFrame(x_dr.values,columns = ['x1','x2','x3'],index = x_dr.index)
         clu_label = pd.DataFrame(clu_label,columns = ['label'])
         plot_data = pd.concat([x_dr,clu_label],axis = 1)
         plt = Data_plot.plot_scatter(plot_data,label_col ='label')

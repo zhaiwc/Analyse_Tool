@@ -24,7 +24,7 @@ class Feature_Reduction():
     n_comp: N 前N大主成分（优先）
     cum_std ： 0.8 前N大主成分所解释的方差累计百分比（次优）
     '''
-    def __init__(self, n_comp  ,method = 'PCA',  cum_std = 0.8):
+    def __init__(self, n_comp  ,method = 'pca',  cum_std = 0.8):
         self.method = method
         self.n_comp = n_comp
         self.cum_std = cum_std

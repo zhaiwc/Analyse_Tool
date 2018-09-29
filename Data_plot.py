@@ -425,7 +425,7 @@ def plot_autocorr(data,columnslist = None,label_col = None):
         plt = sns.pairplot(data, hue = label_col)
     return plt
 
-def plot_bar_analysis(data,columnslist = None ,label_col = None,threshold = None):
+def plot_bar_analysis(data,columnslist = None ,label_col = None,threshold = None,Top = 0):
     '''
     实现画有阈值的bar分析图。
     输入的数据：
@@ -441,7 +441,10 @@ def plot_bar_analysis(data,columnslist = None ,label_col = None,threshold = None
         
     for col in columnslist:
         if data.shape[0] > 30:
-            data = pd.concat([data.iloc[0:15,:],data.iloc[-15:,:]])
+            if Top == 0:
+                data = pd.concat([data.iloc[0:15,:],data.iloc[-15:,:]])
+            else:
+                data = data.iloc[0:Top,:]
             
         if data.shape[0] > 5:
             #超过15个数据，竖向排列
