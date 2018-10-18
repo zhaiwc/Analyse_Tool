@@ -17,7 +17,7 @@ from sklearn.metrics import make_scorer,mean_squared_error,roc_auc_score, accura
 from sklearn import linear_model
 
 from xgboost import XGBRegressor,XGBClassifier
-from Analysis_Tool import Data_plot,Data_Preprocess
+from Analysis_Tool import Data_plot,Data_Preprocess,Data_analysis
 
 class Feature_Reduction():
     '''
@@ -73,7 +73,7 @@ class Feature_Reduction():
             if self.method == 'pca':
                 res = self.dr_model.transform(data)
                 col = ['pca'+ str(i+1) for i in range(res.shape[1])]
-                res = pd.DataFrame(res,columns = col)
+                res = pd.DataFrame(res,columns = col,index = data.index)
                 
             elif self.method == 'kpca':
                 res = self.dr_model.transform(data)
@@ -175,11 +175,12 @@ class Feature_Reduction():
         plt.show()
         
 class Filter_Selection():
-    def __init__(self,method,TopN = 10):
+    def __init__(self,method,TopN = 10,threshold = 0.8):
         self.method = method
         self.TopN = TopN
         self.filter = None
         self.choose_col = []
+        self.threshold = threshold
         
     def fit(self,x,y):
         if self.method == 'std':
@@ -190,7 +191,7 @@ class Filter_Selection():
         elif self.method == 'pearson':
             #皮尔森相关系数
             corr_x = abs(pd.concat([x,y],axis = 1).corr().iloc[:-1,-1]).sort_values()
-            self.choose_col = corr_x.index[-self.TopN:]
+            self.choose_col = corr_x.dropna().index[-self.TopN:]
             
         elif self.method == 'mi':
             #互信息
@@ -202,6 +203,10 @@ class Filter_Selection():
             mi = pd.DataFrame(mi,index = x.columns,columns = ['mi']).sort_values('mi')
             self.choose_col = mi.index[-self.TopN:]
         
+        elif self.method == 'auto_del':
+            #高自相关剔除
+            x,autocorr_df,dropcol = Data_analysis.autocorr_analysis(x,threshold=self.threshold)
+            self.choose_col = x.columns
             
     def transform(self,x):
         transform_x = x.loc[:,self.choose_col]
@@ -406,6 +411,7 @@ class Feature_Mining():
         FS_x = self.Filter_Selection.transform(x)
         DChange_FS_x = self.DChange.transform(FS_x)
         res = self.Standard.transform(DChange_FS_x)
-        res = pd.DataFrame(res.iloc[:,self.TopN:].values,index = x.index,columns = res.columns[self.TopN:])
+        res = pd.DataFrame(res.iloc[:,self.TopN+1:].values,index = x.index,columns = res.columns[self.TopN+1:])
         res = pd.concat([x,res],axis = 1)
         return res
+

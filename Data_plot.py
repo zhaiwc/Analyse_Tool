@@ -395,15 +395,22 @@ def plot_describe(data,columnslist = None,label_col = None):
                 axs[1,i].set_xlabel(columnslist[i])
 
     else:
-        (f, axs) = plt.subplots(2, len(columnslist), figsize=(10, 8), sharex=True)
+
+        (f, axs) = plt.subplots(2, len(columnslist), figsize=(20, 8), sharex=True)
         for i in range(len(columnslist)):
             #画箱线图
-            sns.boxplot(x=columnslist[i],y=label_col,data = data,ax=axs[0,i])
-            axs[0,i].set_xlabel(columnslist[i])
+            if len(columnslist) == 1:
+                ths_axs1 = axs[0]
+                ths_axs2 = axs[1]
+            else:
+                ths_axs1 = axs[0,i]
+                ths_axs2 = axs[1,i]
+            sns.boxplot(x=columnslist[i],y=label_col,data = data,ax=ths_axs1 )
+            ths_axs1.set_xlabel(columnslist[i])
             #画直方概率图
             for key,group in data.groupby(label_col):
-                sns.kdeplot(group.loc[:,columnslist[i]].dropna(), shade =True,label=key,ax=axs[1,i])
-            axs[1,i].set_xlabel(columnslist[i])
+                sns.kdeplot(group.loc[:,columnslist[i]].dropna(), shade =True,label=key,ax=ths_axs2)
+            ths_axs2.set_xlabel(columnslist[i])
                      
     return plt
 
@@ -483,3 +490,5 @@ def plot_confusion_matrix(y_truth, y_predict, cmap=plt.cm.Blues):
     plt.xlabel('Predicted label')  
     return plt
 
+
+    

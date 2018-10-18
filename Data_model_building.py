@@ -428,7 +428,7 @@ class reg_stack_muti():
         '''
         拟合：
         '''
-        basic_reg = ['linear','ridge','lasso','ElasticNet','pls','svr','knn','dt','rf','adaBoost','gbm','xgb']
+        basic_reg = ['linear','ridge','lasso','ElasticNet','pls','svr','knn','dt','rf','adaBoost','gbm','xgb','bp']
         X_train, X_test, y_train, y_test = split_train_test(x,y,test_size=0.1)
         for model_name in self.listModelName:
             if model_name in basic_reg:
@@ -732,8 +732,8 @@ class cls_model():
                                       "n_estimators": [500],}
                 elif self.method == 'bp':
                     self.parameters = {'activation':['logistic'],
-                                       'hidden_layer_sizes' : [(10,)],
-                                       'max_iter': [200000],}
+                                       'hidden_layer_sizes' : [(10)],
+                                       'max_iter': [800000],}
                     
         else:#用户传参数，则以用户参数为准
             self.parameters = parameters
@@ -843,7 +843,7 @@ class cls_model_stack():
         拟合：
         '''
         model_list = []
-        basic_cls = ['logistic','knn','svm','dt','rf','adaBoost','gbm','xgb']
+        basic_cls = ['logistic','knn','svm','dt','rf','adaBoost','gbm','xgb','bp']
         for model_name in self.listModelName:
             if model_name in basic_cls:
 

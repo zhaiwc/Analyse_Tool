@@ -7,12 +7,15 @@
 import pandas as pd 
 import numpy as np
 import pdb
+import copy
 
 from Analysis_Tool.Data_Preprocess import check_discrete
 from Analysis_Tool.helper import dcor,CausalCalculator,discrete,continuous
 from Analysis_Tool import Data_plot,Data_Preprocess,Data_model_building,Data_feature_reduction
 from sklearn.metrics.cluster import adjusted_rand_score
 from sklearn.cluster import KMeans
+from scipy.stats import ks_2samp
+from sklearn.ensemble import IsolationForest
 
 def _describe_data(data):
     describe_df = data.describe()
@@ -28,9 +31,11 @@ def describe_analysis(data,columnslist = None,label_col =None):
     mean,std,max,min,四分位数,skew,kurt
     画图
     '''
+
     if columnslist is None:
         columnslist = list(data.columns)
     if label_col is not None and label_col in columnslist:
+        columnslist = list(columnslist)
         columnslist.remove(label_col)
         
     print('开始对数据进行描述性统计分析...')
@@ -49,6 +54,7 @@ def describe_analysis(data,columnslist = None,label_col =None):
             describe_df = pd.concat([describe_df,des_df])
         describe_df = describe_df.set_index('index')
     plt_col = list(set(check_col)&set(columnslist))
+    
     plt = Data_plot.plot_describe(data,plt_col,label_col)
     plt.show()
     return describe_df
@@ -273,8 +279,9 @@ def nonlinear_corr_analysis(data,y = None,columnslist = None,label_col = None,th
 
             corr_df = pd.DataFrame(d_corr,index = columnslist[:-1],columns =['distance correlation with '+ str(columnslist[-1])])
         
+        corr_df =corr_df.replace(np.nan,0)
         corr_df = corr_df.sort_values(corr_df.columns[0])
-
+        
         plt = Data_plot.plot_bar_analysis(corr_df,corr_df.columns,threshold = [threshold,-threshold])
         plt.title('correlation with '+str(columnslist[-1]))
         plt.show()
@@ -333,16 +340,164 @@ def nonlinear_corr_analysis(data,y = None,columnslist = None,label_col = None,th
             data = data.drop(pd.DataFrame(y).columns[0],axis =1)
             data = data.reindex(index = y.index)
     return data,corr_df,drop_col
-        
-def group2group_diff(df1,df2):
-    '''
-    分别比较两组均值差异
-    
-    '''
-    df1_mean = df1.mean(axis = 0)
-    df2_mean = df2.mean(axis = 0)
-    return pd.DataFrame((df1_mean - df2_mean).sort_values(),columns = ['diff']) 
 
+class G2G_analysis():
+    '''
+    组对组分析：
+    1. KS 检验： 检验2组数据分布是否一致，True 分布不一致，False 分布一致
+    2. 一列KS两两检验。
+    3.全列两组 均值，标准差，四分卫距对比，获取变异最大的列。
+    '''
+    
+    def __init__(self):
+        pass
+    
+    def KS_test(self,group1,group2,p_threshold = 0.05):
+        
+        ks_value,p_value = ks_2samp(group1,group2)
+        if p_value < p_threshold:
+            return False
+        else:
+            return True
+
+                
+    def g2g_diff(self,df1,df2,method = 'mean'):
+        '''
+        分别比较两组均值差异,标准差差异，四分位数重合度
+        
+        '''
+        if method == 'mean':
+            df1_mean = df1.mean(axis = 0)
+            df2_mean = df2.mean(axis = 0)
+            res = pd.DataFrame(abs(df1_mean - df2_mean).sort_values(),columns = ['diff_mean']) 
+        elif method == 'std':
+            df1_std = df1.std(axis = 0)
+            df2_std = df2.std(axis = 0)
+            res = pd.DataFrame(abs(df1_std - df2_std).sort_values(),columns = ['diff_std']) 
+        
+        elif method == '4q':
+            res = []
+            for i in range(df1.shape[1]):
+                df1_25 = np.percentile(df1.iloc[:,i],25)
+                df1_75 = np.percentile(df1.iloc[:,i],75)
+                
+                df2_25 = np.percentile(df2.iloc[:,i],25)
+                df2_75 = np.percentile(df2.iloc[:,i],75)
+                
+                if df2_25 < df1_75:
+                    diff = df1_75 - df2_25 
+                elif df1_25 < df2_75:
+                    diff = df2_75 - df1_25 
+                
+                if diff < 0:
+                    diff = 0
+                
+                res.append(diff)
+            res = pd.DataFrame(res,index = df1.columns,columns = ['4q']).sort_values('4q')
+            
+        return res
+    
+    def get_KS_mat(self,data,label_col):
+        
+        if data.shape[1] > 2:
+           
+            if data.columns[0] != label_col:
+                data = data.loc[:,[label_col]+[data.columns[0]]]
+            else:
+                data = data.loc[:,[label_col]+[data.columns[1]]]
+        
+        groupindex = data[label_col].drop_duplicates()
+        res = pd.DataFrame(np.ones((len(groupindex),len(groupindex))),index = groupindex ,columns =groupindex)
+        
+        for key1,group1 in data.groupby(label_col):
+            for key2,group2 in data.groupby(label_col):
+                if key1 != key2:
+                    KS_p = self.KS_test(group1.iloc[:,1].values,group2.iloc[:,1].values)
+                else:
+                    KS_p = True
+                    
+                res.loc[key1,key2] = KS_p
+                
+        return res
+    
+    def g2g_anaysis(self,data,label_col,columnslist = None ,method = 'mean'):
+        '''
+        限制两组进行对比
+        '''
+        groupindex = data[label_col].drop_duplicates()
+        print(groupindex[0],'vs',groupindex[1],'method:',method)
+        group1 = data[data[label_col] == groupindex[0]]
+        group2 = data[data[label_col] == groupindex[1]]
+        
+        group1 = group1.drop(label_col,axis=1)
+        group2 = group2.drop(label_col,axis=1)
+        
+        res = self.g2g_diff(group1,group2,method = method)
+        
+        #筛选最后5列
+        col = res.index[-5:]
+        Data_plot.plot_describe(data,label_col= label_col,columnslist=col)
+        return res
+    
+class Outlier_analysis():
+    '''
+    异常点分析
+    1.获取异常点分布矩阵
+    2.使用IForest检测异常点
+    3.确认xy异常点相关性
+    '''
+    def __init__(self,method = '3sigma', muti = 3,th):
+        self.method = method
+        self.muti = muti
+        
+    def get_outlier_mat(self,df):
+        res = copy.copy(df)
+        if self.method == '3sigma':
+            self.upline = df.mean() + self.muti * df.std()
+            self.dnline = df.mean() - self.muti * df.std()
+        elif self.method == 'tukey':
+            df = df.fillna(method = 'ffill')
+            n25 = pd.DataFrame(np.percentile(df,25,axis=0),index = df.columns)
+            n75 = pd.DataFrame(np.percentile(df,75,axis=0),index = df.columns)
+            self.upline = n75 + self.muti * ( n75 - n25 )
+            self.dnline = n25 - self.muti * ( n75 - n25 )
+
+        res[df>self.upline] = 1
+        res[df<self.dnline] = 1
+        
+        res[(df>=self.dnline)&(df<=self.upline)] = 0 
+        
+        return res
+    
+    def check_outlier_iforest(self,df,isplot = True):
+        
+        iforest = IsolationForest()
+        iforest.fit(df)
+        res = pd.DataFrame(iforest.predict(df),index = df.index,columns = ['outlier'])
+        
+        if isplot:
+            #画数据分布散点图
+            fr = Data_feature_reduction.Feature_Reduction(2)
+            fr.fit(df)
+            pca_res = fr.transform(df)
+            if pca_res.shape[1] > 2:
+                pca_res = pca_res.iloc[:,:2]
+            
+            plotdata = pd.concat([res,pca_res],axis = 1 )
+            plt = Data_plot.plot_scatter(plotdata,label_col='outlier')
+            plt.show()
+            
+        return res
+    
+    def xy_outlier_corr(self,x,y):
+        
+        x_outlier = self.get_outlier_mat(x)
+        y_outlier = self.get_outlier_mat(y)
+
+        data,corr_df,drop_col = nonlinear_corr_analysis(x_outlier,y_outlier)
+        
+        return corr_df
+    
 def ishave_Outlier(df):
     '''
     获取超过3sigma的列名
@@ -596,4 +751,20 @@ def reduce_dim_cluster(x,n_cluster = 2, dim = 2):
         return res
     else:
         return None
+    
+if __name__ == '__main__':
+    import pandas as pd
+    import numpy as np
+    
+    x1 = pd.DataFrame(np.random.normal(0,2,1000),columns = ['data'])
+    label1 = pd.DataFrame(np.ones(x1.shape),columns = ['label'])
+    x1 = pd.concat([label1,x1],axis=1)
+    
+    x2 = pd.DataFrame(np.random.normal(1,2,1000),columns = ['data'])
+    label2 = pd.DataFrame(np.ones(x2.shape),columns = ['label'])
+    x2 = pd.concat([label2,x2],axis=1)
+    
+    data = pd.concat([x1,x2])
+    
+    describe_analysis(data,columnslist=data.columns,label_col =  'label')
             
